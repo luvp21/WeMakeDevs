@@ -81,7 +81,7 @@ Resources:
     Properties:
       Handler: scriptGen.handler
       CodeUri: src
-      Timeout: 60
+      Timeout: 120
       Environment:
         Variables:
           LLM_PROVIDER: "gemini"
@@ -103,6 +103,81 @@ Resources:
         Target: node24
         EntryPoints:
           - handlers/scriptGen.ts
+
+  ScriptPlanFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: scriptSteps.planHandler
+      CodeUri: src
+      Timeout: 60
+      Environment:
+        Variables:
+          LLM_PROVIDER: "gemini"
+          GEMINI_API_KEY: !Ref GeminiApiKey
+      Events:
+        Api:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref VaaniHttpApi
+            Path: /script/plan
+            Method: POST
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: node24
+        EntryPoints:
+          - handlers/scriptSteps.ts
+
+  WriteSceneFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: scriptSteps.writeSceneHandler
+      CodeUri: src
+      Timeout: 60
+      Environment:
+        Variables:
+          LLM_PROVIDER: "gemini"
+          GEMINI_API_KEY: !Ref GeminiApiKey
+      Events:
+        Api:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref VaaniHttpApi
+            Path: /script/write-scene
+            Method: POST
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: node24
+        EntryPoints:
+          - handlers/scriptSteps.ts
+
+  SceneGenFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: sceneGen.handler
+      CodeUri: src
+      Timeout: 60
+      Environment:
+        Variables:
+          LLM_PROVIDER: "gemini"
+          GEMINI_API_KEY: !Ref GeminiApiKey
+      Events:
+        SceneGen:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref VaaniHttpApi
+            Path: /script/scene
+            Method: POST
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: node24
+        EntryPoints:
+          - handlers/sceneGen.ts
 
   LockScriptFunction:
     Type: AWS::Serverless::Function

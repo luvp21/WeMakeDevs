@@ -1,10 +1,23 @@
 import { codeToHtml } from "shiki";
-import type { Beat, IngestResult, VisualSpec } from "@vaani/shared";
+import {
+  CHROME_HEIGHT,
+  FRAME_HEIGHT,
+  FRAME_WIDTH,
+  chartHtml,
+  diagramHtml,
+  escapeHtml,
+  pageHtml,
+  placeholderHtml,
+  slideHtml,
+  type Beat,
+  type BeatChrome,
+  type IngestResult,
+  type VisualSpec,
+} from "@vaani/shared";
 
-// Video frame size — Playwright screenshots at exactly this viewport, so
-// every beat's visual is already the right dimensions for ffmpeg.
-const FRAME_WIDTH = 1280;
-const FRAME_HEIGHT = 720;
+// How a beat looks (design system, diagram, chart, slide, chrome bar) lives in
+// @vaani/shared so the browser's review page renders exactly the same markup.
+// This file adds only what needs Node: Shiki-highlighted code.
 const CONTEXT_LINES = 5;
 
 function findFileContent(ingest: IngestResult, filePath: string): string | null {
@@ -12,110 +25,118 @@ function findFileContent(ingest: IngestResult, filePath: string): string | null 
   return file?.content ?? null;
 }
 
-function escapeHtml(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
-
-// Shared design system for every generated visual — one consistent palette
-// and type scale across the whole video, not each beat improvising its own.
-// Values match one-dark-pro (the theme code_highlight already renders with,
-// see codeHighlightHtml below), so slide/graph beats don't visually clash
-// against the code beats sitting right next to them in the same video.
-// Inspired by /brag's "Visual Identity" step (extract exact bg/text/accent
-// colors + fonts and apply them consistently, not per-scene improvisation)
-// and its landing page's own look (big bold type, high contrast, minimal) —
-// researched this session, see PROGRESS.md. System font stack on purpose,
-// not a web font: render runs headless on Fargate with no network font
-// loading in the critical path, so this can't silently degrade or slow
-// down a render.
-const DESIGN_SYSTEM_STYLE = `
-  :root {
-    --bg: #282c34;
-    --bg-elevated: #2c313a;
-    --fg: #e6e6e6;
-    --fg-muted: #9199a8;
-    --accent: #61afef;
-    --accent-warm: #e5c07b;
-    --font: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
-    --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
-  }
-  body { background: var(--bg); color: var(--fg); font-family: var(--font); }
-  .slide { display: flex; flex-direction: column; justify-content: center; gap: 20px; height: 100%; padding: 64px 72px; }
-  .slide h1, .slide h2 { margin: 0; font-weight: 700; letter-spacing: -0.01em; line-height: 1.15; }
-  .slide h1 { font-size: 56px; }
-  .slide h2 { font-size: 36px; color: var(--fg-muted); font-weight: 500; }
-  .slide p { margin: 0; font-size: 28px; line-height: 1.5; color: var(--fg); }
-  .slide .accent { color: var(--accent); }
-  .slide .accent-warm { color: var(--accent-warm); }
-  .slide code, .slide .mono { font-family: var(--font-mono); background: var(--bg-elevated); padding: 2px 8px; border-radius: 6px; }
-  .slide .card { background: var(--bg-elevated); border-radius: 12px; padding: 32px; }
-`;
-
-function basePage(bodyHtml: string, extraStyle = ""): string {
-  return `<!doctype html><html><head><meta charset="utf-8"><style>
-    * { box-sizing: border-box; }
-    html, body { margin: 0; width: ${FRAME_WIDTH}px; height: ${FRAME_HEIGHT}px; overflow: hidden; }
-    ${DESIGN_SYSTEM_STYLE}
-    ${extraStyle}
-  </style></head><body>${bodyHtml}</body></html>`;
-}
-
-function placeholder(message: string): string {
-  return basePage(
-    `<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--fg-muted);font-family:var(--font);font-size:24px;">${escapeHtml(message)}</div>`,
-  );
+// Removes the indentation shared by every non-blank line, so a snippet cut out
+// of deeply nested code sits at the left edge of the code window instead of
+// being pushed several tab stops to the right (found on a real tab-indented repo).
+function dedent(lines: string[]): string[] {
+  const indents = lines.filter((l) => l.trim() !== "").map((l) => (/^[\t ]*/.exec(l)?.[0].length ?? 0));
+  const common = indents.length ? Math.min(...indents) : 0;
+  return lines.map((l) => l.slice(Math.min(common, /^[\t ]*/.exec(l)?.[0].length ?? 0)));
 }
 
 async function codeHighlightHtml(
   spec: Extract<VisualSpec, { visual_type: "code_highlight" }>,
   ingest: IngestResult,
+  chrome: BeatChrome | undefined,
 ): Promise<string> {
   const content = findFileContent(ingest, spec.file_path);
   if (!content) {
-    return placeholder(`${spec.file_path || "(no file)"} not available`);
+    return placeholderHtml(`${spec.file_path || "(no file)"} not available`, chrome);
   }
 
   const lines = content.split("\n");
   const windowStart = Math.max(1, spec.start_line - CONTEXT_LINES);
   const windowEnd = Math.min(lines.length, spec.end_line + CONTEXT_LINES);
-  const snippet = lines.slice(windowStart - 1, windowEnd).join("\n");
-  const decorationStartLine = spec.start_line - windowStart;
-  const decorationEndLine = spec.end_line - windowStart + 1;
+  const snippet = dedent(lines.slice(windowStart - 1, windowEnd)).join("\n");
 
+  // Tag each line (1-based within the snippet) as highlighted or context, so
+  // CSS can dim the context and sweep the highlight in. A per-line transformer
+  // is used instead of a range decoration because it puts the class on the
+  // line element itself, which is what the dimming/animation selectors need.
+  const firstHighlighted = spec.start_line - windowStart + 1;
+  const lastHighlighted = spec.end_line - windowStart + 1;
   const html = await codeToHtml(snippet, {
     lang: spec.language ?? "text",
     theme: "one-dark-pro",
-    decorations: [
+    transformers: [
       {
-        start: { line: decorationStartLine, character: 0 },
-        end: { line: decorationEndLine, character: 0 },
-        properties: { class: "highlighted-line" },
+        line(node, lineNumber) {
+          const highlighted = lineNumber >= firstHighlighted && lineNumber <= lastHighlighted;
+          this.addClassToHast(node, highlighted ? "hl" : "ctx");
+          node.properties.style = `--n:${lineNumber - 1}`;
+        },
       },
     ],
   });
 
-  return basePage(`<div style="font-size:16px; padding:24px; height:100%;">${html}</div>`, `
-    pre { margin: 0; height: 100%; overflow: hidden; }
-    .line { display: block; }
-    .highlighted-line { background: rgba(250, 204, 21, 0.22); }
-  `);
+  const lineCount = windowEnd - windowStart + 1;
+  // Long snippets shrink so the whole window stays on screen.
+  const fontSize = lineCount > 22 ? 14 : lineCount > 16 ? 16 : 19;
+  const range = spec.start_line === spec.end_line ? `L${spec.start_line}` : `L${spec.start_line}-${spec.end_line}`;
+
+  return pageHtml(
+    `<div class="code-wrap">
+      <div class="code-window">
+        <div class="code-title"><span class="code-file">${escapeHtml(spec.file_path)}</span><span class="code-range">${range}</span></div>
+        <div class="code-body" style="font-size:${fontSize}px">${html}</div>
+      </div>
+    </div>`,
+    chrome,
+    `
+    .code-wrap { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 34px 72px; }
+    .code-window {
+      width: 100%; max-height: 100%; overflow: hidden; display: flex; flex-direction: column;
+      background: #21252b; border: 1px solid var(--border); border-radius: 16px;
+      box-shadow: 0 30px 80px rgba(0, 0, 0, 0.45);
+      animation: vaani-pop 0.6s var(--ease) both;
+    }
+    .code-title { display: flex; justify-content: space-between; padding: 12px 20px; border-bottom: 1px solid var(--border); font-family: var(--font-mono); font-size: 14px; color: var(--fg-muted); }
+    .code-range { color: var(--accent-warm); }
+    .code-body { padding: 16px 0; overflow: hidden; }
+    .code-body pre { margin: 0; background: transparent !important; tab-size: 2; -moz-tab-size: 2; }
+    .code-body code { display: flex; flex-direction: column; }
+    .code-body .line { display: block; padding: 1px 24px; line-height: 1.6; animation: vaani-line-in 0.5s var(--ease) both; animation-delay: calc(var(--n) * 28ms); }
+    .code-body .line.ctx { --final: 0.42; }
+    .code-body .line.hl {
+      --final: 1;
+      background: linear-gradient(90deg, rgba(229, 192, 123, 0.2), rgba(229, 192, 123, 0.12)) no-repeat left / 100% 100%;
+      animation: vaani-line-in 0.5s var(--ease) both, vaani-sweep 0.7s var(--ease) 0.4s both;
+      animation-delay: calc(var(--n) * 28ms), 0.4s;
+    }
+  `,
+  );
 }
 
-export async function beatVisualHtml(beat: Beat, ingest: IngestResult): Promise<string> {
-  switch (beat.visual_spec.visual_type) {
+export async function beatVisualHtml(beat: Beat, ingest: IngestResult, chrome?: BeatChrome): Promise<string> {
+  const spec = beat.visual_spec;
+  switch (spec.visual_type) {
     case "code_highlight":
-      return codeHighlightHtml(beat.visual_spec, ingest);
+      return codeHighlightHtml(spec, ingest, chrome);
     case "slide":
     case "graph":
-      // Wrapped in the shared .slide container (padding, centering, type
-      // scale from DESIGN_SYSTEM_STYLE) rather than handing the LLM a bare
-      // body — script-gen's prompt asks for inner content only (h1/p/.card
-      // etc.), not full-page layout, so every slide/graph beat gets the
-      // same visual identity regardless of what the model generates.
-      return basePage(`<div class="slide">${beat.visual_spec.html}</div>`);
+      return slideHtml(spec.html, chrome);
+    case "diagram":
+      return diagramHtml(spec, chrome);
+    case "chart":
+      return chartHtml(spec, chrome);
     case "ui_demo":
-      return placeholder(`Live demo: ${beat.visual_spec.note || "(no description)"}`);
+      // Without recorded footage (the AI-voice fallback path has none) show
+      // what the viewer would have seen. With footage, realRender.ts replaces
+      // this beat with the actual screen recording.
+      return placeholderHtml(`Live demo: ${spec.note || "(no description)"}`, chrome);
   }
 }
 
-export { FRAME_WIDTH, FRAME_HEIGHT };
+// Builds the bottom-bar info for one beat from where it sits in the script.
+export function chromeFor(scenes: { title: string; beats: unknown[] }[], sceneIndex: number, beatIndex: number): BeatChrome {
+  return {
+    sceneTitle: scenes[sceneIndex].title,
+    sceneIndex,
+    sceneCount: scenes.length,
+    beatIndex,
+    beatCount: scenes[sceneIndex].beats.length,
+  };
+}
+
+export { FRAME_WIDTH, FRAME_HEIGHT, CHROME_HEIGHT, escapeHtml };
+export type { VisualSpec };

@@ -6,7 +6,10 @@ import { generateScript } from "../lib/scriptGen.js";
 export const handler: APIGatewayProxyHandlerV2 = async (event) => {
   try {
     const parsed = ScriptGenRequestSchema.parse(JSON.parse(event.body ?? "{}"));
-    const script = await generateScript(parsed.ingest, parsed.user_context);
+    const script = await generateScript(parsed.ingest, parsed.user_context, parsed.format, {
+      targetMinutes: parsed.target_minutes,
+      sourceScript: parsed.source_script?.trim() || undefined,
+    });
     return { statusCode: 200, body: JSON.stringify(script) };
   } catch (err) {
     if (err instanceof ZodError) {

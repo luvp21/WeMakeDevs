@@ -10,12 +10,14 @@ import {
   RecordingUploadUrlRequestSchema,
   TranscribeRequestSchema,
   SyncRequestSchema,
+  SceneGenRequestSchema,
+  WriteSceneRequestSchema,
   recordingKey,
   type RenderStatus,
 } from "@vaani/shared";
 import { ZodError } from "zod";
 import { ingestRepo, IngestError } from "./lib/ingest.js";
-import { generateScript } from "./lib/scriptGen.js";
+import { generateScript, generateScene, planScript, writePlannedScene } from "./lib/scriptGen.js";
 import { lockScript, getLockedScript } from "./lib/lockScript.js";
 import { narrateScript } from "./lib/narration/index.js";
 import { triggerRenderTask } from "./lib/render/trigger.js";
@@ -51,8 +53,64 @@ app.post("/api/ingest", async (req, res) => {
 app.post("/api/script", async (req, res) => {
   try {
     const parsed = ScriptGenRequestSchema.parse(req.body);
-    const script = await generateScript(parsed.ingest, parsed.user_context);
+    const script = await generateScript(parsed.ingest, parsed.user_context, parsed.format, {
+      targetMinutes: parsed.target_minutes,
+      sourceScript: parsed.source_script?.trim() || undefined,
+    });
     res.json(script);
+  } catch (err) {
+    if (err instanceof ZodError) return res.status(400).json({ error: err.message });
+    res.status(500).json({ error: errorMessage(err) });
+  }
+});
+
+// Step 1 of the progress-friendly flow: the outline only.
+app.post("/api/script/plan", async (req, res) => {
+  try {
+    const parsed = ScriptGenRequestSchema.parse(req.body);
+    const scenes = await planScript(parsed.ingest, parsed.user_context, parsed.format, {
+      targetMinutes: parsed.target_minutes,
+      sourceScript: parsed.source_script?.trim() || undefined,
+    });
+    res.json({ scenes });
+  } catch (err) {
+    if (err instanceof ZodError) return res.status(400).json({ error: err.message });
+    res.status(500).json({ error: errorMessage(err) });
+  }
+});
+
+// Step 2: write one scene of that outline.
+app.post("/api/script/write-scene", async (req, res) => {
+  try {
+    const parsed = WriteSceneRequestSchema.parse(req.body);
+    res.json(
+      await writePlannedScene({
+        ingest: parsed.ingest,
+        format: parsed.format,
+        userContext: parsed.user_context,
+        outline: parsed.outline,
+        index: parsed.index,
+      }),
+    );
+  } catch (err) {
+    if (err instanceof ZodError) return res.status(400).json({ error: err.message });
+    res.status(500).json({ error: errorMessage(err) });
+  }
+});
+
+app.post("/api/script/scene", async (req, res) => {
+  try {
+    const parsed = SceneGenRequestSchema.parse(req.body);
+    res.json(
+      await generateScene({
+        ingest: parsed.ingest,
+        format: parsed.format,
+        userContext: parsed.user_context,
+        sceneTitle: parsed.scene_title,
+        narration: parsed.narration,
+        mode: parsed.mode,
+      }),
+    );
   } catch (err) {
     if (err instanceof ZodError) return res.status(400).json({ error: err.message });
     res.status(500).json({ error: errorMessage(err) });

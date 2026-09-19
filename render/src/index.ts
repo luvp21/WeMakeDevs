@@ -14,9 +14,10 @@ import {
   type SyncResult,
 } from "@vaani/shared";
 import { getJson, putJson, downloadToFile, putFile } from "./s3.js";
-import { beatVisualHtml } from "./visuals.js";
-import { screenshotHtml, closeBrowser } from "./screenshot.js";
-import { runFfmpeg, OUTPUT_FPS } from "./ffmpeg.js";
+import { beatVisualHtml, chromeFor } from "./visuals.js";
+import { closeBrowser } from "./screenshot.js";
+import { runFfmpeg } from "./ffmpeg.js";
+import { assembleScene, frameCounts, renderBeatClip } from "./beatClip.js";
 import { renderSceneFromRecording } from "./realRender.js";
 
 async function setStatus(scriptId: string, status: RenderStatus["status"], error?: string): Promise<void> {
@@ -24,65 +25,41 @@ async function setStatus(scriptId: string, status: RenderStatus["status"], error
   await putJson(renderStatusKey(scriptId), body);
 }
 
-// FFmpeg's concat demuxer needs the last entry's duration line omitted (a
-// well-known quirk — the final image's stated duration is otherwise
-// ignored), so the last file is repeated once more without one.
-function buildImageConcatList(entries: { file: string; durationSeconds: number }[]): string {
-  const lines: string[] = [];
-  for (const entry of entries) {
-    lines.push(`file '${entry.file}'`);
-    lines.push(`duration ${entry.durationSeconds.toFixed(3)}`);
-  }
-  const last = entries[entries.length - 1];
-  if (last) lines.push(`file '${last.file}'`);
-  return lines.join("\n");
-}
-
-// AI-narrated fallback path (Polly) — see docs/ARCHITECTURE.md. Kept as-is;
+// AI-narrated fallback path (Polly) — see docs/ARCHITECTURE.md.
 // renderSceneFromRecording() in realRender.ts is the real-recording
-// equivalent, tried first (see main()).
+// equivalent, tried first (see main()). Both build the scene the same way:
+// one animated clip per beat (beatClip.ts), then the audio laid underneath.
 async function renderSceneFromNarration(
   locked: LockedScript,
   narration: NarrationResult,
   sceneId: string,
   workDir: string,
 ): Promise<string> {
-  const scene = locked.script.scenes.find((s) => s.id === sceneId);
+  const scenes = locked.script.scenes;
+  const sceneIndex = scenes.findIndex((s) => s.id === sceneId);
+  const scene = scenes[sceneIndex];
   const sceneNarration = narration.scenes.find((s) => s.scene_id === sceneId);
   if (!scene || !sceneNarration) throw new Error(`Scene ${sceneId} missing from script or narration`);
 
   const audioPath = path.join(workDir, `${sceneId}.mp3`);
   await downloadToFile(sceneAudioKey(locked.script_id, sceneId), audioPath);
 
-  const imageEntries: { file: string; durationSeconds: number }[] = [];
-  for (const beat of scene.beats) {
+  const durations = scene.beats.map((beat) => {
     const beatNarration = sceneNarration.beats.find((b) => b.beat_id === beat.id);
     if (!beatNarration) throw new Error(`Beat ${beat.id} missing from narration`);
+    return beatNarration.duration_ms / 1000;
+  });
+  const frames = frameCounts(durations);
 
-    const html = await beatVisualHtml(beat, locked.ingest);
-    const imagePath = path.join(workDir, `${beat.id}.png`);
-    await screenshotHtml(html, imagePath);
-    imageEntries.push({ file: `${beat.id}.png`, durationSeconds: beatNarration.duration_ms / 1000 });
+  const clipPaths: string[] = [];
+  for (let i = 0; i < scene.beats.length; i++) {
+    const beat = scene.beats[i];
+    const html = await beatVisualHtml(beat, locked.ingest, chromeFor(scenes, sceneIndex, i));
+    clipPaths.push(await renderBeatClip({ html, frames: frames[i], workDir, id: beat.id }));
   }
 
-  const listPath = path.join(workDir, `${sceneId}-images.txt`);
-  await writeFile(listPath, buildImageConcatList(imageEntries));
-
   const sceneVideoPath = path.join(workDir, `${sceneId}.mp4`);
-  await runFfmpeg([
-    "-f", "concat",
-    "-safe", "0",
-    "-i", listPath,
-    "-i", audioPath,
-    "-r", String(OUTPUT_FPS),
-    "-vsync", "cfr",
-    "-pix_fmt", "yuv420p",
-    "-c:v", "libx264",
-    "-c:a", "aac",
-    "-shortest",
-    sceneVideoPath,
-  ]);
-
+  await assembleScene({ clipPaths, audioPath, outPath: sceneVideoPath, workDir, sceneId });
   return sceneVideoPath;
 }
 

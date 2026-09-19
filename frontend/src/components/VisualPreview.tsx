@@ -1,7 +1,17 @@
-import { useEffect, useId, useRef, type CSSProperties } from "react";
+import { useEffect, useId, useRef, useState, type CSSProperties } from "react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
-import type { IngestResult, VisualSpec } from "@vaani/shared";
+import { MonitorPlay } from "lucide-react";
+import {
+  FRAME_HEIGHT,
+  FRAME_WIDTH,
+  chartHtml,
+  demoFrameHtml,
+  diagramHtml,
+  slideHtml,
+  type IngestResult,
+  type VisualSpec,
+} from "@vaani/shared";
 
 interface VisualPreviewProps {
   spec: VisualSpec;
@@ -16,42 +26,36 @@ function findFileContent(ingestResult: IngestResult | null, filePath: string): s
   return file?.content ?? null;
 }
 
-// Same design tokens/wrapper as render/src/visuals.ts's DESIGN_SYSTEM_STYLE
-// — kept in sync manually rather than shared as code, since frontend and
-// render are separate workspaces (see PROGRESS.md) and this is small enough
-// that duplicating it here is simpler than adding a shared-code dependency
-// for a few lines of CSS. Without this, review would show LLM content on a
-// plain white background while the actual rendered video is dark — this
-// preview should show what the beat will really look like, not something
-// close to it.
-const SLIDE_PREVIEW_STYLE = `
-  :root {
-    --bg: #282c34; --bg-elevated: #2c313a; --fg: #e6e6e6; --fg-muted: #9199a8;
-    --accent: #61afef; --accent-warm: #e5c07b;
-    --font: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
-    --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
-  }
-  * { box-sizing: border-box; }
-  html, body { margin: 0; height: 100%; }
-  body { background: var(--bg); color: var(--fg); font-family: var(--font); }
-  .slide { display: flex; flex-direction: column; justify-content: center; gap: 16px; height: 100%; padding: 24px 28px; }
-  .slide h1, .slide h2 { margin: 0; font-weight: 700; letter-spacing: -0.01em; line-height: 1.15; }
-  .slide h1 { font-size: 26px; }
-  .slide h2 { font-size: 17px; color: var(--fg-muted); font-weight: 500; }
-  .slide p { margin: 0; font-size: 14px; line-height: 1.5; }
-  .slide .accent { color: var(--accent); }
-  .slide .accent-warm { color: var(--accent-warm); }
-  .slide code, .slide .mono { font-family: var(--font-mono); background: var(--bg-elevated); padding: 1px 6px; border-radius: 4px; }
-  .slide .card { background: var(--bg-elevated); border-radius: 8px; padding: 16px; }
-`;
+// Renders the exact page the video renderer screenshots (same shared HTML/CSS),
+// at its real 1280x720 size inside a sandboxed iframe, then scales it down to
+// the available width. So what someone reviews is what gets rendered, including
+// the entrance animation. LLM-authored HTML is untrusted content: the iframe
+// has no scripts and no same-origin access.
+function FramePreview({ html }: { html: string }) {
+  const boxRef = useRef<HTMLDivElement>(null);
+  const [scale, setScale] = useState(0.4);
 
-// LLM-authored HTML is untrusted content — render it in a fully sandboxed
-// iframe (no scripts, no same-origin) rather than dangerouslySetInnerHTML
-// into the main document.
-function HtmlPreview({ html }: { html: string }) {
-  const srcDoc = `<!doctype html><html><head><meta charset="utf-8"><style>${SLIDE_PREVIEW_STYLE}</style></head><body><div class="slide">${html}</div></body></html>`;
+  useEffect(() => {
+    const el = boxRef.current;
+    if (!el) return;
+    const update = () => setScale(el.clientWidth / FRAME_WIDTH);
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
   return (
-    <iframe title="Visual preview" srcDoc={srcDoc} sandbox="" className="h-64 w-full rounded-md border" />
+    <div ref={boxRef} className="relative w-full overflow-hidden rounded-md border bg-background" style={{ aspectRatio: `${FRAME_WIDTH} / ${FRAME_HEIGHT}` }}>
+      <iframe
+        title="Visual preview"
+        srcDoc={html}
+        sandbox=""
+        tabIndex={-1}
+        className="absolute top-0 left-0 origin-top-left border-0"
+        style={{ width: FRAME_WIDTH, height: FRAME_HEIGHT, transform: `scale(${scale})` }}
+      />
+    </div>
   );
 }
 
@@ -110,11 +114,19 @@ export function VisualPreview({ spec, ingestResult }: VisualPreviewProps) {
       return <CodeHighlightPreview spec={spec} ingestResult={ingestResult} />;
     case "slide":
     case "graph":
-      return <HtmlPreview html={spec.html} />;
+      return <FramePreview html={slideHtml(spec.html, undefined)} />;
+    case "diagram":
+      return <FramePreview html={diagramHtml(spec, undefined)} />;
+    case "chart":
+      return <FramePreview html={chartHtml(spec, undefined)} />;
     case "ui_demo":
       return (
-        <div className="flex h-24 items-center justify-center rounded-md border border-dashed bg-muted text-sm text-muted-foreground">
-          Live screen-share demo: {spec.note || "(no description)"}
+        <div className="flex flex-col gap-3">
+          <FramePreview html={demoFrameHtml(spec.note || "Live demo", undefined, "Your screen recording plays here")} />
+          <p className="flex items-start gap-2 text-xs text-muted-foreground">
+            <MonitorPlay className="mt-0.5 size-3.5 shrink-0" />
+            You'll share your screen for this beat while you talk. Your recording goes here.
+          </p>
         </div>
       );
   }

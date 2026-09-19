@@ -13,6 +13,13 @@
 // larger and matching them would risk false positives on unrelated words);
 // those are expected to fall to the sync algorithm's stall-skip fallback.
 
+// True when a token has at least one letter or digit. A lone dash or other
+// punctuation ("focus karo — initial runners") normalizes to nothing and can
+// never match, so it must not be treated as a word on either side.
+export function hasWordContent(word: string): boolean {
+  return normalize(word) !== "";
+}
+
 function normalize(word: string): string {
   return word.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
 }
@@ -47,8 +54,32 @@ function levenshtein(a: string, b: string): number {
 const MIN_EDIT_DISTANCE_ALLOWANCE = 2;
 const EDIT_DISTANCE_PROPORTION = 0.34; // roughly 1 edit per 3 characters
 
-function maxAllowedEditDistance(length: number): number {
-  return Math.max(MIN_EDIT_DISTANCE_ALLOWANCE, Math.floor(length * EDIT_DISTANCE_PROPORTION));
+function maxAllowedEditDistance(longer: number, shorter: number): number {
+  const allowed = Math.max(MIN_EDIT_DISTANCE_ALLOWANCE, Math.floor(longer * EDIT_DISTANCE_PROPORTION));
+  // Two edits is only reasonable when there are enough letters to still be the
+  // same word: found by a real end-to-end run where "ye" falsely matched "hi"
+  // (2 edits on 2 letters is a completely different word) and dragged a beat
+  // checkpoint 5 seconds late. Very short words get at most 1 edit.
+  return shorter <= 2 ? Math.min(allowed, 1) : allowed;
+}
+
+// Hindi has no fixed Latin spelling, so the same word arrives spelled several
+// ways: a script's "cheez" and a transliterated transcript's "chiija" are the
+// same word. This folds the usual variants (long vowels, z/j, v/w, ph/f, a
+// trailing schwa, doubled letters) onto one key so they compare equal. Found on
+// a real run where two such words in a row stalled the sync for a whole beat.
+export function phoneticKey(word: string): string {
+  let key = normalize(word)
+    .replace(/aa/g, "a")
+    .replace(/ii|ee/g, "i")
+    .replace(/oo|uu/g, "u")
+    .replace(/ph/g, "f")
+    .replace(/ck/g, "k")
+    .replace(/z/g, "j")
+    .replace(/v/g, "w")
+    .replace(/(.)\1+/g, "$1");
+  if (key.length > 3 && key.endsWith("a")) key = key.slice(0, -1);
+  return key;
 }
 
 export function wordsMatch(scriptWord: string, transcriptWord: string): boolean {
@@ -56,6 +87,8 @@ export function wordsMatch(scriptWord: string, transcriptWord: string): boolean 
   const b = normalize(transcriptWord);
   if (!a || !b) return a === b;
   if (a === b) return true;
-  const threshold = maxAllowedEditDistance(Math.max(a.length, b.length));
+  const keyA = phoneticKey(a);
+  if (keyA.length >= 3 && keyA === phoneticKey(b)) return true;
+  const threshold = maxAllowedEditDistance(Math.max(a.length, b.length), Math.min(a.length, b.length));
   return levenshtein(a, b) <= threshold;
 }

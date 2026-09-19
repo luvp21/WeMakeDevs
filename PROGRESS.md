@@ -688,6 +688,217 @@ Notes:
     stepper stretched the grid column so the page was ~700px wide in a 390px viewport. Both fixed.
     `PRODUCT.md` added for impeccable. Not done: no DESIGN.md (impeccable `document`), and the
     whole flow hasn't been driven with the real backend/webcam after the redesign (mocked only).
+  - **Landing page + dashboard + real routes.** The user said it still didn't look like a real
+    product. Researched cap.so, screen.studio and resend.com for structure: a real product opens
+    on the product doing its actual job, earns credibility through specifics (real specs, honest
+    FAQ), and has a dashboard where work persists. No invented testimonials, customer logos or
+    pricing (PRODUCT.md forbids it; FAQ says "no pricing yet"). Built with react-router and the
+    `motion` library: `/` landing, `/app` dashboard, `/app/studio/:id?` studio (one route for both
+    new and reopened projects so locking a new script, which puts the id in the URL, doesn't
+    remount), and a 404. Landing (`pages/Landing.tsx`, direction contract in its header comment):
+    hero with a live `HeroDemo` (a spoken line advances word by word and the visual cuts on the
+    exact word, using the real vercel/ms take and its real beat boundaries), an auto-advancing
+    five-step `PipelineTabs`, a `SyncExplainer` that animates the actual two-pointer match on the
+    real transcript with the real cut times (16.16s / 18.26s / 20.66s, fuzzy matches marked),
+    Hinglish showcase with English terms highlighted, an honest "under the hood" list, FAQ
+    accordion, CTA, footer. Motion is restrained: one headline reveal plus the two demos, all
+    paused off-screen (`useInView`) and static under `prefers-reduced-motion`. The claim that AWS
+    Transcribe heard "async function" as "tracing function" is from our own real-speech test.
+    Dashboard: shadcn `Sidebar` shell, projects table with status, mini progress, recorded count,
+    per-stage action ("Start recording", "Watch video"), filter tabs, empty and loading states,
+    polls while anything renders. **Backend**: `GET /api/projects` and `GET /api/projects/:id`
+    (`backend/src/lib/projects.ts`) derive a project's stage purely from which S3 artifacts exist
+    (recordings, `sync/`, `renders/status.json`) so no extra state is stored; three prefix
+    listings, not one request per project. Reopening a project hydrates the studio (locked
+    script, uploaded scenes, sync flag, render status) and opens on the right step; the recorder
+    resumes at the first unrecorded scene. SAM template got the two new GET Lambdas and `GET`
+    in the API's CORS methods (it only allowed POST before, which would have broken the
+    existing GET status calls from a separately hosted frontend). Verified against the real dev
+    servers and real bucket (5 real projects listed, a finished project reopened to its video).
+    **Bugs caught by the inspection round**: the pipeline tab list was clipped to one item by the
+    shadcn tabs' fixed height, a finished Polly-voice project showed "Nothing to render yet" when
+    reopened, and Base UI warned that link-rendered Buttons weren't native buttons (Button now
+    passes `nativeButton={!render}`). **Known limits, stated plainly**: there is no auth, so the
+    dashboard lists every project in the bucket (fine for a single-user hackathon deploy, not for
+    production); the frontend isn't hosted anywhere yet, and as a SPA it needs a
+    fallback-to-index.html rule wherever it goes (CloudFront/S3 error page mapping); the SAM
+    changes are not deployed; no DESIGN.md.
+  - **Video styling + animation polish (render stage).** Both render paths (real recording and
+    Polly fallback) now build each beat as an animated clip instead of a static screenshot with a
+    hard cut. `visuals.ts`: deeper editor-dark background (radial vignette plus a faint masked
+    blueprint grid), a persistent bottom chrome bar (Vaani mark, "scene n/N" and title, one
+    progress segment per beat), slide content staggered in with a blur-rise, cards pop in, and
+    code beats are a rounded window with a file-path/line-range title bar that dims context lines
+    and sweeps the highlight band in. Code lines are tagged by a Shiki per-line transformer
+    (`hl`/`ctx`) rather than a range decoration, because the class has to be on the line element
+    for the dimming to work. `screenshot.ts` `captureBeatFrames` pauses every CSS animation and
+    steps its clock (`document.getAnimations()`), capturing 1.1s at 30fps as real frames, so the
+    animation is exact and independent of machine speed. New `beatClip.ts`: encodes those frames
+    plus the settled last frame held with `tpad` clone into a genuine constant-30fps clip (the
+    same reason as the earlier vfr fix: never sparse timestamps), `frameCounts()` rounds cumulative
+    beat boundaries so cuts never drift from the audio, `assembleScene()` concats clips (video
+    stream-copied) and lays the scene audio underneath. Verified on a real render through
+    `main()` with a synthetic recording: 210 frames at exactly 30fps, 7.01s, ~15s wall time;
+    extracted frames show the staggered entrance, the dim/sweep on code, and the beat progress.
+    **Bug caught by looking at the frames**: code lines were double-spaced with gaps in the
+    highlight band (whitespace text nodes between Shiki line spans); fixed with a flex column.
+    **Deployed**: rebuilt and pushed the Fargate image to ECR (`vaani-render:latest`), then ran a
+    real render of an existing 5-scene project on Fargate: done in ~1m45s, 1280x720 at exactly
+    30fps, 1:56, animated frames and chrome bar confirmed by extracting frames. (That old project
+    predates the new slide prompt, so its slides still carry their own boxed backgrounds; new
+    scripts follow the design contract.) The frontend's slide preview still uses the earlier flat style (no vignette or
+    animation), which is fine for review but no longer pixel-identical to the video.
+  - **Automated end-to-end run through the real UI, and three real bugs it found.** Built a
+    harness (Playwright + Chromium fake mic playing Amazon Polly speech of a controlled 3-beat
+    script via `--use-file-for-fake-audio-capture`), then drove the actual app: reopen a saved
+    project, record, upload to S3, Groq Whisper transcription, sync, Fargate render. Polly's
+    per-beat durations gave ground truth for the cuts. The chain ran with no errors in ~100s.
+    (1) **Whisper wrote English terms in Devanagari** on that speech ("फंक्शन", "स्ट्रिंग"),
+    which can never match the script's Latin spellings, so two of three checkpoints were 1-5s
+    late. Fixed in `backend/src/lib/transcribe/groq.ts` by passing the scene's own script text as
+    Whisper's `prompt` and forcing `language: "en"` (overridable via `WHISPER_LANGUAGE`): output is
+    now pure Latin Hinglish identical to the script's spelling, no Devanagari at all (also what the
+    user asked for: everything in English letters). Re-transcribing the same recording put every
+    checkpoint within ~70ms of Polly's ground truth. Tradeoff to know: with a prompt, Whisper leans
+    toward the script's words, so it is a little less able to reveal that the speaker said
+    something different (sync only needs timing, so this is acceptable); with no script to prompt
+    with, `language: "en"` on Hindi speech could translate rather than romanize (only reachable for
+    loose recordings, not the app's flow). The Devanagari transliteration step stays as a harmless
+    fallback for `WHISPER_LANGUAGE=hi`. (2) **Cuts landed ~1.5s early**: beat 1's duration was
+    measured from its first spoken word instead of from the start of the recording, so the
+    silence between pressing record and speaking was dropped from the video while the audio kept
+    it. Fixed in `render/src/realRender.ts` (first beat starts at 0); verified on a fresh Fargate
+    render by extracting frames on both sides of each cut. (3) My own first comparison looked like
+    a 1-5s error partly because Whisper reports the first word's start as 0 after leading
+    silence; the true timeline was used for the final check. Added
+    `backend/src/lib/sync/e2e-real-data.test.ts` (real transcript, checkpoints within 150ms of
+    truth). Backend suite 9/9. Fargate image rebuilt and pushed again with the fix. Test project's
+    S3 data deleted afterward.
+  - **From-scratch end-to-end test on a small repo, and two more sync bugs it found.** Ran the
+    whole product through the real UI on a repo it had never seen (`sindresorhus/p-map`): draft a
+    script with real Gemini (asked for 3 short scenes; got 3 scenes, 6 beats), lock, then record
+    every scene (a fresh browser per scene with a fake mic playing that scene's Polly speech, which
+    also exercises reopening a saved project), transcribe with Whisper, sync, render on Fargate.
+    3m22s wall time, 43s video. Scenes 1 and 3 landed within 116ms of Polly ground truth, but
+    scene 2 was 5.5s off. Two causes, both in the sync code: (1) Whisper heard the opening word
+    "Ye" as "This", the script pointer stuck on it, and it later false-matched an unrelated "hi"
+    because my earlier widening of the fuzzy tolerance to 2 edits let "ye" match "hi" (2 edits on
+    2 letters is a different word) — now words with 2 or fewer letters get at most 1 edit
+    (`matches.ts`); (2) the algorithm could only recover from one misheard or unsaid word by waiting
+    out the 18-word stall threshold — added a look-ahead (`classifyMismatch` in `sync/index.ts`):
+    if the next two script words match the next two transcript words it's a substitution (consume
+    the transcript word, use its time for a beat opener), and if they match starting at the
+    current transcript word it's a drop (don't consume it). One existing test's expectation moved
+    from 1000ms to 800ms for a legitimate reason (the filler "arre" now stands in for the unsaid
+    word), documented in the test. Added two tests (misheard first word from this real run, and
+    the two-letter false match); suite 11/11. Re-syncing the same stored recordings: worst beat
+    error 444ms (Whisper starting a word early after a sentence pause), the other five within
+    116ms. Also fixed a cosmetic bug seen in the render: code snippets cut from deeply nested,
+    tab-indented code were pushed far to the right; snippets are now dedented and use a 2-wide tab
+    stop (`visuals.ts`). Fargate image rebuilt and pushed with this. The test project stays in S3
+    (visible on the dashboard) and its speech is Polly, not a person.
+  - **Video formats: Vaani now makes hackathon demos and product demos, not only code
+    walkthroughs.** The user's feedback: the output felt like a code explanation, but a
+    hackathon-winning demo needs balance: problem, live product, diagrams, a little code, results.
+    Built five formats as data in `shared/src/formats.ts` (`code_walkthrough`, `hackathon_demo`,
+    `product_demo`, `architecture_overview`, `launch_teaser`): each has an outline of scenes with
+    their purpose, a visual-mix rule, a tone, a length, and whether it shows the product. One
+    source of truth for the picker (`RepoForm`, radio cards), the script prompt (`scriptGen.ts`
+    builds it from the chosen format) and the studio. Script has a `format` field (defaults to
+    `code_walkthrough` for old scripts).
+    - **New visual types, as data not HTML**: `diagram` (nodes + edges, validated by zod) and
+      `chart` (bar chart; `source` is required). The renderer lays out and animates them itself
+      (`shared/src/visualDesign.ts`): layered left-to-right layout, wrapped labels, oriented
+      arrowheads, edges drawing in, bars growing. The model returns them as JSON in the beat's
+      `content` (the tool schema is capped at few properties, see the Gemini note above); it is
+      validated and falls back to a plain slide if unusable, so a bad diagram can't break a script.
+      **Honesty guardrail**: the prompt forbids invented metrics; charts only use numbers found in
+      the README/repo or the user's notes, and show their source. On a real run the model
+      correctly skipped a chart because the repo had no numbers.
+    - **Product demo footage** (this fulfils CLAUDE.md #4's getDisplayMedia, previously
+      "good-to-have"): a scene containing `ui_demo` beats is recorded with `getDisplayMedia` (screen
+      as video) plus the mic (audio); the prompter marks demo beats ("On screen: ..."), and a
+      "Pop out prompter" button opens a small window to keep beside the app being demoed.
+      `renderFootageClip` cuts each demo beat's window out of the recording at its synced time
+      and frames it in a window over the same dark background/bottom bar. The AI-voice fallback
+      has no footage and shows a labeled placeholder. Not agent-driven: per CLAUDE.md the user
+      drives the demo themselves.
+    - **Shared visual code**: the design system, slide/diagram/chart/demo-frame HTML now live in
+      `@vaani/shared` and both the renderer and the browser use them. The review page renders the
+      same page at 1280x720 in a sandboxed iframe scaled down (`VisualPreview.tsx`), so preview
+      equals video (only code beats differ: Shiki vs a JS highlighter). This retires the
+      "preview no longer identical" caveat above. Slides gained a `.statement` class for hooks.
+    - **Verified end to end through the real UI** on `sindresorhus/p-map` with the Hackathon demo
+      format: 5 scenes, 12 beats (statement slides, 3 live-demo beats, 2 diagrams, code, close),
+      recorded per scene with a fake mic (Polly) and a fake animated screen share (the app's
+      own `getDisplayMedia` path, faked by overriding it with a canvas stream), synced, rendered on
+      Fargate (~110s, 1:43). Extracted frames confirm the footage frame counter advancing through
+      the three demo beats, the diagram, and code windows. The result stays in S3 (dashboard).
+    - **Bugs the run found, all fixed** (17 backend tests now, up from 9):
+      (1) `language: "en"` on Whisper, my earlier setting, is fragile: on the same audio it gave a
+      hallucinated one-liner, an English *translation*, or a truncation. Now: auto-detect with the
+      script as prompt, Devanagari transliterated to Latin before storing (so stored/displayed
+      text is English letters, as the user asked), and a retry chain (auto+prompt, en+prompt,
+      hi+prompt, en) driven by `scriptCoverage` (share of script words the transcript reproduces
+      in order, under 50% means retry). A word-count check was not enough because a fluent
+      translation is full length but matches nothing. `pickTranscript` returns the best if all
+      fail. (2) Sync stalled on punctuation-only tokens (a "—" in the script, echoed back by
+      Whisper); those are now ignored on both sides. (3) Added `phoneticKey` (long vowels, z/j,
+      v/w, ph/f, trailing schwa folded) so Latin spelling variants of one Hindi word match
+      ("cheez" and "chiija"). Final result: all 12 beats within 440ms of Polly ground truth
+      (first beats start at 0 by design).
+    - **Not done / to know**: the recorder's real `getDisplayMedia` picker was not exercised (a
+      faked stream stood in; the browser-native picker and "stop sharing" bar are untested);
+      formats beyond the five aren't offered; `hackathon_demo` quality depends on the user's note
+      (real results only if given). Fargate image is current (footage renderer pushed).
+  - **Target length, bring-your-own script, and edit-then-regenerate.** Three features the user
+    asked for. (1) **Length**: choose 30 sec / 1 / 2 / 3 / 5 min (default per format).
+    `shared/src/duration.ts` holds the pace (135 words/min, measured from Polly's Kajal at ~137)
+    and the estimators; `scriptGen.ts` turns the target into a word budget in the prompt and, if
+    the draft lands outside 75-125% of it, retries once with the count fed back and keeps the closer
+    draft. Real results: 1 min target gave 147 words (~65s), 3 min gave 401 words (~178s).
+    Gemini rejects the tool schema (bare INVALID_ARGUMENT) if the array limits go past 8 scenes x 5
+    beats, confirmed by trying 10 x 6 — 8 x 5 = 40 beats still covers 5 minutes, so the UI stops
+    there. (2) **Your own script**: paste narration into the form; the visuals are built around it.
+    The prompt says to keep their wording, and `wordPreservation` measures it; if under 85% of their
+    words survive it retries once, then falls back to `scenesFromText` (paragraphs become scenes,
+    sentences become beats, plain slides) so the result is always exactly their script. A real run
+    kept 79/79 words while adding slides, a diagram and demo beats. When a script is present the
+    length control switches off (the script sets the length) and the form shows its word count and
+    spoken time. (3) **Edit then regenerate**: new `POST /api/script/scene` (`generateScene`), mode
+    `beat` (one beat) or `scene` (split edited scene text into beats), wording kept verbatim, same
+    faithfulness check and fallback. The review page shows per-beat words/seconds and per-scene and
+    total length; changing a beat's wording flags it ("Wording changed", button becomes "Update
+    visual to match"); "Rewrite scene" opens a scene-level editor and "Rebuild scene" regenerates its
+    beats and visuals. The teleprompter reads the same beat text, so it follows the edit. Verified
+    through the real UI with real Gemini: editing beat 1 to talk about a live demo changed its visual
+    from Slide to Product demo (wording kept, flag cleared); rewriting scene 2 as an architecture
+    description produced one beat with a Diagram; after locking, the prompter showed the edited
+    wording. New SAM function `SceneGenFunction` (not deployed); `ScriptGenFunction` timeout raised to
+    120s since a length/faithfulness retry can double the call. Also fixed the backend `test`
+    script: the unquoted glob got shell-expanded as soon as one test file existed at src/lib/, so
+    only 4 of 21 tests ran; it is quoted now and all 21 pass.
+  - **Script generation is now two-stage: plan, then one call per scene.** The user's suggestion
+    (share the repo context once, give each scene its own prompt), and it fixes real problems with
+    the single giant call: the Gemini nested-array cap (8 scenes x 5 beats), whole-script retries for
+    a length miss, and one bad scene meaning regenerate everything. `planScript` (a short flat
+    "outline" call, no nesting so no size cap) returns one entry per scene with a title, a purpose
+    naming the concrete repo material to use, and a word budget rescaled to sum to the requested
+    length; `writePlannedScene` writes one scene with the shared repo context plus the full outline
+    (so scenes don't repeat or contradict each other) and retries that scene alone if its length is
+    off (`< 65%` or `> 140%` of its own budget). A user-written script skips the model for planning
+    (`planFromSourceScript` splits paragraphs, or groups sentences, into scenes, capped at 14) and each
+    scene's wording is verified separately by `generateScene`. New endpoints `POST /api/script/plan`
+    and `POST /api/script/write-scene` (Lambda handlers + SAM functions, not deployed); the old
+    `POST /api/script` still works and runs plan plus parallel writes (3 at a time). The web app calls
+    the two steps itself (`frontend/src/lib/generate.ts`), so it shows real progress ("Planning the
+    scenes", "Writing scene 3 of 6"), writes 3 scenes at once, and retries a failed scene on its own.
+    Real numbers on Gemini: 3 min video = 6 scenes / 407 words vs a 405 budget in 26s; 5 min video =
+    10 scenes / 30 beats / 663 words vs 675 in 43s (previously a 5 minute script could barely fit
+    the beat cap); in the UI a 3 min draft took 34s and showed 2:55 estimated. Every scene landed
+    within ~10% of its own budget. The 8 x 5 limit noted above no longer applies to generation (the
+    UI still stops at 5 min; longer is now possible). Left on Gemini; the provider abstraction
+    means a GPT client could be added later. Backend suite 24/24.
   - **Not yet done**: a live, real-microphone/webcam run through this exact new path (real
     recording → real Whisper transcript → real sync → real render) hasn't happened yet — Saturday
     night's Whisper test proved the STT+sync half against real speech, and today's synthetic test

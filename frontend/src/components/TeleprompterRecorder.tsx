@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowRight, Camera, Check, RotateCcw, Square, Upload } from "lucide-react";
-import type { Script, TranscribeStatus } from "@vaani/shared";
+import { ArrowRight, Camera, Check, ExternalLink, MonitorPlay, RotateCcw, Square, Upload } from "lucide-react";
+import { escapeHtml, type Script, type TranscribeStatus } from "@vaani/shared";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -12,6 +12,8 @@ import * as api from "@/lib/api";
 interface TeleprompterRecorderProps {
   script: Script;
   lockedScriptId: string;
+  // Scenes already uploaded in an earlier session (reopened project).
+  initialCompletedSceneIds?: string[];
   onComplete: () => void;
 }
 
@@ -31,14 +33,25 @@ function pickSupportedMimeType(): string {
   return "video/webm";
 }
 
-export function TeleprompterRecorder({ script, lockedScriptId, onComplete }: TeleprompterRecorderProps) {
-  const [sceneIndex, setSceneIndex] = useState(0);
+export function TeleprompterRecorder({
+  script,
+  lockedScriptId,
+  initialCompletedSceneIds = [],
+  onComplete,
+}: TeleprompterRecorderProps) {
+  const [sceneIndex, setSceneIndex] = useState(() => {
+    const firstOpen = script.scenes.findIndex((s) => !initialCompletedSceneIds.includes(s.id));
+    return firstOpen === -1 ? 0 : firstOpen;
+  });
   const [stage, setStage] = useState<Stage>("setup");
   const [error, setError] = useState<string | null>(null);
-  const [completedSceneIds, setCompletedSceneIds] = useState<Set<string>>(new Set());
+  const [completedSceneIds, setCompletedSceneIds] = useState<Set<string>>(() => new Set(initialCompletedSceneIds));
   const [transcribeStatus, setTranscribeStatus] = useState<TranscribeStatus | null>(null);
 
+  const [screenReady, setScreenReady] = useState(false);
+
   const streamRef = useRef<MediaStream | null>(null);
+  const screenRef = useRef<MediaStream | null>(null);
   const liveVideoRef = useRef<HTMLVideoElement>(null);
   const reviewVideoRef = useRef<HTMLVideoElement>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -48,10 +61,14 @@ export function TeleprompterRecorder({ script, lockedScriptId, onComplete }: Tel
   const scene = script.scenes[sceneIndex];
   const isLastScene = sceneIndex === script.scenes.length - 1;
   const allDone = completedSceneIds.size === script.scenes.length;
+  // A scene with a product-demo beat is recorded while sharing the screen: the
+  // screen becomes the video, the mic is still the audio.
+  const needsScreen = scene.beats.some((b) => b.visual_type === "ui_demo");
 
   useEffect(() => {
     return () => {
       streamRef.current?.getTracks().forEach((track) => track.stop());
+      screenRef.current?.getTracks().forEach((track) => track.stop());
     };
   }, []);
 
@@ -91,12 +108,60 @@ export function TeleprompterRecorder({ script, lockedScriptId, onComplete }: Tel
     }
   }
 
+  function releaseScreen() {
+    screenRef.current?.getTracks().forEach((track) => track.stop());
+    screenRef.current = null;
+    setScreenReady(false);
+  }
+
+  async function shareScreen() {
+    setError(null);
+    try {
+      const screen = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 30 }, audio: false });
+      screenRef.current = screen;
+      // If the person stops sharing from the browser's own bar, stop cleanly.
+      screen.getVideoTracks()[0]?.addEventListener("ended", () => {
+        if (recorderRef.current?.state === "recording") recorderRef.current.stop();
+        screenRef.current = null;
+        setScreenReady(false);
+      });
+      if (liveVideoRef.current) liveVideoRef.current.srcObject = screen;
+      setScreenReady(true);
+    } catch (err) {
+      setError(err instanceof Error ? `Couldn't share your screen: ${err.message}` : "Couldn't share your screen");
+    }
+  }
+
+  // The prompter lives in this tab, but while demoing the product the presenter
+  // is looking at another window, so it can be popped out and placed beside it.
+  function popOutPrompter() {
+    const popup = window.open("", "vaani-prompter", "popup,width=560,height=720");
+    if (!popup) {
+      setError("Your browser blocked the pop-out window. Allow pop-ups for this site and try again.");
+      return;
+    }
+    const lines = scene.beats
+      .map((beat) => {
+        const demo = beat.visual_spec.visual_type === "ui_demo" ? `<div class="demo">On screen: ${escapeHtml(beat.visual_spec.note)}</div>` : "";
+        return `<p>${escapeHtml(beat.text)}</p>${demo}`;
+      })
+      .join("");
+    popup.document.title = "Vaani prompter";
+    popup.document.body.innerHTML = `<style>body{margin:0;padding:28px;background:#23272e;color:#eceff4;font:26px/1.5 system-ui,sans-serif}h4{margin:0 0 18px;font:600 15px system-ui;color:#9199a8}p{margin:0 0 20px}.demo{margin:-8px 0 22px;font:600 15px system-ui;color:#e5c07b}</style><h4>${escapeHtml(scene.title)}</h4>${lines}`;
+  }
+
   function startRecording() {
     const stream = streamRef.current;
     if (!stream) return;
     setError(null);
     chunksRef.current = [];
-    const recorder = new MediaRecorder(stream, { mimeType: pickSupportedMimeType() });
+    // Screen scenes: the shared screen is the video, the mic is the audio.
+    const screen = needsScreen ? screenRef.current : null;
+    const recordStream = new MediaStream([
+      ...(screen ? screen.getVideoTracks() : stream.getVideoTracks()),
+      ...stream.getAudioTracks(),
+    ]);
+    const recorder = new MediaRecorder(recordStream, { mimeType: pickSupportedMimeType() });
     recorder.ondataavailable = (e) => {
       if (e.data.size > 0) chunksRef.current.push(e.data);
     };
@@ -106,6 +171,7 @@ export function TeleprompterRecorder({ script, lockedScriptId, onComplete }: Tel
       if (reviewVideoRef.current) {
         reviewVideoRef.current.src = URL.createObjectURL(blob);
       }
+      releaseScreen();
       setStage("review");
     };
     recorderRef.current = recorder;
@@ -119,6 +185,7 @@ export function TeleprompterRecorder({ script, lockedScriptId, onComplete }: Tel
 
   function retake() {
     recordedBlobRef.current = null;
+    releaseScreen();
     if (reviewVideoRef.current) reviewVideoRef.current.src = "";
     setStage("idle");
     if (liveVideoRef.current && streamRef.current) {
@@ -211,9 +278,21 @@ export function TeleprompterRecorder({ script, lockedScriptId, onComplete }: Tel
               <span className="text-sm font-medium text-muted-foreground">{scene.title}</span>
               <div className="flex flex-col gap-4 text-xl leading-relaxed">
                 {scene.beats.map((beat) => (
-                  <p key={beat.id}>{beat.text}</p>
+                  <div key={beat.id} className="flex flex-col gap-1.5">
+                    <p>{beat.text}</p>
+                    {beat.visual_spec.visual_type === "ui_demo" && (
+                      <span className="flex items-start gap-1.5 text-sm font-medium text-highlight">
+                        <MonitorPlay className="mt-0.5 size-4 shrink-0" />
+                        On screen: {beat.visual_spec.note}
+                      </span>
+                    )}
+                  </div>
                 ))}
               </div>
+              <Button variant="outline" size="sm" className="w-fit" onClick={popOutPrompter}>
+                <ExternalLink data-icon="inline-start" />
+                Pop out prompter
+              </Button>
             </CardContent>
           </Card>
 
@@ -231,7 +310,7 @@ export function TeleprompterRecorder({ script, lockedScriptId, onComplete }: Tel
                 autoPlay
                 muted
                 playsInline
-                className={inCapture ? "hidden" : "size-full -scale-x-100 object-cover"}
+                className={inCapture ? "hidden" : screenReady ? "size-full object-contain" : "size-full -scale-x-100 object-cover"}
               />
               <video
                 ref={reviewVideoRef}
@@ -248,7 +327,13 @@ export function TeleprompterRecorder({ script, lockedScriptId, onComplete }: Tel
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              {stage === "idle" && (
+              {stage === "idle" && needsScreen && !screenReady && (
+                <Button onClick={shareScreen} className="flex-1">
+                  <MonitorPlay data-icon="inline-start" />
+                  Share your screen
+                </Button>
+              )}
+              {stage === "idle" && (!needsScreen || screenReady) && (
                 <Button onClick={startRecording} className="flex-1">
                   <span className="size-2 rounded-full bg-destructive" data-icon="inline-start" />
                   Start recording
@@ -285,6 +370,13 @@ export function TeleprompterRecorder({ script, lockedScriptId, onComplete }: Tel
                 </Button>
               )}
             </div>
+
+            {stage === "idle" && needsScreen && (
+              <p className="text-xs text-muted-foreground">
+                This scene shows your product. Share the tab or window with your app, then read the script while you
+                use it. Pop out the prompter to keep it beside your app.
+              </p>
+            )}
 
             {stage === "uploaded" && transcribeStatus && (
               <p className="text-xs text-muted-foreground tabular">

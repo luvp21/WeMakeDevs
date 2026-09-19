@@ -1,5 +1,5 @@
 import type { Checkpoint, Scene, TranscriptWord } from "@vaani/shared";
-import { wordsMatch } from "./matches.js";
+import { hasWordContent, wordsMatch } from "./matches.js";
 
 export { transliterateTranscript, devanagariToLatin } from "./transliterate.js";
 
@@ -16,12 +16,45 @@ interface ScriptWord {
 export function tokenizeScene(scene: Scene): ScriptWord[] {
   const words: ScriptWord[] = [];
   for (const beat of scene.beats) {
-    const beatWords = beat.text.split(/\s+/).filter(Boolean);
+    const beatWords = beat.text.split(/\s+/).filter(hasWordContent);
     beatWords.forEach((text, index) => {
       words.push({ text, beatId: index === 0 ? beat.id : undefined });
     });
   }
   return words;
+}
+
+// Classifies a mismatch at script[i] / transcript[j] that heals right after:
+//  - "substituted": the two script words after i match the two transcript words
+//    after j, so the word was misheard (e.g. "Ye" heard as "This"); the
+//    transcript word stands in for it and is consumed.
+//  - "dropped": script[i+1], script[i+2] match transcript[j], transcript[j+1],
+//    so the word wasn't said at all; the transcript word is NOT consumed, it
+//    belongs to the next script word.
+// Two consecutive matches are required so one coincidental fuzzy match can't
+// trigger a skip.
+function classifyMismatch(
+  script: ScriptWord[],
+  transcript: TranscriptWord[],
+  i: number,
+  j: number,
+): "substituted" | "dropped" | null {
+  if (i + 2 >= script.length) return null;
+  if (
+    j + 2 < transcript.length &&
+    wordsMatch(script[i + 1].text, transcript[j + 1].text) &&
+    wordsMatch(script[i + 2].text, transcript[j + 2].text)
+  ) {
+    return "substituted";
+  }
+  if (
+    j + 1 < transcript.length &&
+    wordsMatch(script[i + 1].text, transcript[j].text) &&
+    wordsMatch(script[i + 2].text, transcript[j + 1].text)
+  ) {
+    return "dropped";
+  }
+  return null;
 }
 
 // The two-pointer walk from docs/SYNC_ALGORITHM.md: the script is
@@ -40,14 +73,18 @@ export function tokenizeScene(scene: Scene): ScriptWord[] {
 // available approximation.
 export function syncScene(
   scene: Scene,
-  transcriptWords: TranscriptWord[],
+  allTranscriptWords: TranscriptWord[],
   stallThreshold: number = DEFAULT_STALL_THRESHOLD,
 ): Checkpoint[] {
+  // Whisper returns punctuation-only tokens (a dash echoed from the prompt);
+  // they can't match anything, so drop them before walking.
+  const transcriptWords = allTranscriptWords.filter((w) => hasWordContent(w.text));
   const scriptWords = tokenizeScene(scene);
   const checkpoints: Checkpoint[] = [];
   let i = 0;
   let j = 0;
   let stalledFor = 0;
+  let mismatch: ReturnType<typeof classifyMismatch>;
 
   while (i < scriptWords.length && j < transcriptWords.length) {
     const currentScriptWord = scriptWords[i];
@@ -57,6 +94,18 @@ export function syncScene(
       }
       i += 1;
       j += 1;
+      stalledFor = 0;
+    } else if ((mismatch = classifyMismatch(scriptWords, transcriptWords, i, j))) {
+      // One script word was misheard or never said, but the words right after
+      // it line up again: skip just that word now instead of waiting out the
+      // stall threshold. If it opened a beat, use this transcript word's own
+      // time — it is where that word was (mis)heard, or where the next word
+      // (the closest thing to it) begins.
+      if (currentScriptWord.beatId) {
+        checkpoints.push({ beat_id: currentScriptWord.beatId, timestamp_ms: transcriptWords[j].start_ms });
+      }
+      i += 1;
+      if (mismatch === "substituted") j += 1;
       stalledFor = 0;
     } else {
       j += 1;

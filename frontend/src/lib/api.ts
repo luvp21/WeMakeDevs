@@ -9,6 +9,8 @@ import {
   SyncResultSchema,
   ProjectListSchema,
   ProjectDetailSchema,
+  SceneGenResponseSchema,
+  ScriptPlanResponseSchema,
   ApiErrorSchema,
   type IngestResult,
   type Script,
@@ -20,10 +22,13 @@ import {
   type SyncResult,
   type ProjectList,
   type ProjectDetail,
+  type VideoFormatId,
+  type SceneGenResponse,
+  type PlannedScene,
 } from "@vaani/shared";
 import { z } from "zod";
 
-async function postJson<T>(path: string, body: unknown, schema: z.ZodType<T>): Promise<T> {
+async function postJson<T>(path: string, body: unknown, schema: z.ZodType<T, z.ZodTypeDef, unknown>): Promise<T> {
   const res = await fetch(`/api${path}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -37,7 +42,7 @@ async function postJson<T>(path: string, body: unknown, schema: z.ZodType<T>): P
   return schema.parse(json);
 }
 
-async function getJson<T>(path: string, schema: z.ZodType<T>): Promise<T> {
+async function getJson<T>(path: string, schema: z.ZodType<T, z.ZodTypeDef, unknown>): Promise<T> {
   const res = await fetch(`/api${path}`);
   const json: unknown = await res.json();
   if (!res.ok) {
@@ -51,8 +56,75 @@ export function ingestRepo(repoUrl: string): Promise<IngestResult> {
   return postJson("/ingest", { repo_url: repoUrl }, IngestResultSchema);
 }
 
-export function generateScript(ingest: IngestResult, userContext: string): Promise<Script> {
-  return postJson("/script", { ingest, user_context: userContext }, ScriptSchema);
+export interface GenerateOptions {
+  targetMinutes?: number;
+  sourceScript?: string;
+}
+
+export function generateScript(
+  ingest: IngestResult,
+  userContext: string,
+  format: VideoFormatId,
+  options: GenerateOptions = {},
+): Promise<Script> {
+  return postJson(
+    "/script",
+    { ingest, user_context: userContext, format, target_minutes: options.targetMinutes, source_script: options.sourceScript },
+    ScriptSchema,
+  );
+}
+
+// Step 1: the outline only (one entry per scene, with a word budget).
+export function planScript(
+  ingest: IngestResult,
+  userContext: string,
+  format: VideoFormatId,
+  options: GenerateOptions = {},
+): Promise<PlannedScene[]> {
+  return postJson(
+    "/script/plan",
+    { ingest, user_context: userContext, format, target_minutes: options.targetMinutes, source_script: options.sourceScript },
+    ScriptPlanResponseSchema,
+  ).then((r) => r.scenes);
+}
+
+// Step 2: write one scene of that outline.
+export function writeScene(params: {
+  ingest: IngestResult;
+  format: VideoFormatId;
+  userContext: string;
+  outline: PlannedScene[];
+  index: number;
+}): Promise<SceneGenResponse> {
+  return postJson(
+    "/script/write-scene",
+    { ingest: params.ingest, format: params.format, user_context: params.userContext, outline: params.outline, index: params.index },
+    SceneGenResponseSchema,
+  );
+}
+
+// Rebuilds one scene (or a single beat) from narration the user edited; the
+// wording is kept and the visuals are regenerated to match it.
+export function regenerateScene(params: {
+  ingest: IngestResult;
+  format: VideoFormatId;
+  userContext: string;
+  sceneTitle: string;
+  narration: string;
+  mode: "scene" | "beat";
+}): Promise<SceneGenResponse> {
+  return postJson(
+    "/script/scene",
+    {
+      ingest: params.ingest,
+      format: params.format,
+      user_context: params.userContext,
+      scene_title: params.sceneTitle,
+      narration: params.narration,
+      mode: params.mode,
+    },
+    SceneGenResponseSchema,
+  );
 }
 
 export function lockScript(script: Script, ingest: IngestResult): Promise<LockedScript> {

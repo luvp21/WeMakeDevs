@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { Scene, TranscriptWord } from "@vaani/shared";
 import { syncScene } from "./index.js";
+import { phoneticKey, wordsMatch } from "./matches.js";
 
 // Per docs/SYNC_ALGORITHM.md: "Write a standalone test with a fake
 // transcript that includes: a deliberate stutter, a deliberate
@@ -107,11 +108,13 @@ test("dropped word that IS a beat boundary: it still gets a best-effort checkpoi
   // Act
   const checkpoints = syncScene(s, transcript, 3);
 
-  // Assert — beat-2 still gets a checkpoint (approximated from the next
-  // recognized word) rather than being silently missing.
+  // Assert — beat-2 still gets a checkpoint rather than being silently
+  // missing. The look-ahead sees "arre" then "char Paanch" line up with the
+  // script again, so "arre" stands in for the unsaid "Teen" and beat-2 starts
+  // there (800ms) — where that beat's speech actually begins.
   assert.deepEqual(checkpoints, [
     { beat_id: "beat-1", timestamp_ms: 0 },
-    { beat_id: "beat-2", timestamp_ms: 1000 },
+    { beat_id: "beat-2", timestamp_ms: 800 },
     { beat_id: "beat-3", timestamp_ms: 1200 },
   ]);
 });
@@ -187,4 +190,80 @@ test("loose matching: case and punctuation differences don't break a match", () 
 
   // Assert
   assert.deepEqual(checkpoints, [{ beat_id: "beat-1", timestamp_ms: 0 }]);
+});
+
+test("misheard first word of a beat: resyncs immediately on the next matching words", () => {
+  // Real case from an end-to-end run: the script said "Ye detached loop ..." and
+  // Whisper heard "This detached loop ...". Without a look-ahead the script
+  // pointer sat on "Ye" until a later, unrelated "ye" turned up.
+  const s = scene("scene-1", [
+    { id: "beat-1", text: "Ek do teen" },
+    { id: "beat-2", text: "Ye detached loop initially concurrency" },
+    { id: "beat-3", text: "Aur jaise hi ye khatam ho" },
+  ]);
+  const transcript = words([
+    ["Ek", 0, 300],
+    ["do", 300, 600],
+    ["teen", 600, 900],
+    ["This", 900, 1100],
+    ["detached", 1100, 1500],
+    ["loop", 1500, 1800],
+    ["initially", 1800, 2200],
+    ["concurrency", 2200, 2800],
+    ["Aur", 3000, 3200],
+    ["jaise", 3200, 3500],
+    ["hi", 3500, 3600],
+    ["ye", 3600, 3800],
+    ["khatam", 3800, 4200],
+    ["ho", 4200, 4400],
+  ]);
+
+  const checkpoints = syncScene(s, transcript);
+
+  assert.deepEqual(checkpoints, [
+    { beat_id: "beat-1", timestamp_ms: 0 },
+    { beat_id: "beat-2", timestamp_ms: 900 },
+    { beat_id: "beat-3", timestamp_ms: 3000 },
+  ]);
+});
+
+test("two-letter words don't fuzzy-match unrelated two-letter words", () => {
+  assert.equal(wordsMatch("ye", "hi"), false);
+  assert.equal(wordsMatch("ye", "ye"), true);
+  assert.equal(wordsMatch("toh", "to"), true);
+});
+
+test("Latin spelling variants of the same Hindi word match", () => {
+  // Real pairs from a transcript vs its script: long vowels, z/j, trailing schwa.
+  assert.equal(wordsMatch("cheez", "chiija"), true);
+  assert.equal(wordsMatch("kar", "kara"), true);
+  assert.equal(wordsMatch("banao", "banaao"), true);
+  assert.equal(phoneticKey("cheez"), phoneticKey("chiija"));
+  // ...without making different words equal.
+  assert.equal(wordsMatch("data", "fetch"), false);
+});
+
+test("punctuation-only tokens (a dash) in the script or transcript don't stall the walk", () => {
+  // Real case: the script had "focus karo — initial runners" and Whisper echoed
+  // the "—" back as its own word; neither can match anything.
+  const s = scene("scene-1", [
+    { id: "beat-1", text: "Ab focus karo — initial runners" },
+    { id: "beat-2", text: "Zero bans aur stability" },
+  ]);
+  const transcript = words([
+    ["aba", 0, 200],
+    ["focus", 200, 500],
+    ["karo", 500, 700],
+    ["—", 700, 800],
+    ["initial", 800, 1100],
+    ["runners", 1100, 1500],
+    ["ZERO", 1600, 1900],
+    ["bans,", 1900, 2200],
+    ["aura", 2200, 2400],
+    ["stability", 2400, 3000],
+  ]);
+  assert.deepEqual(syncScene(s, transcript), [
+    { beat_id: "beat-1", timestamp_ms: 0 },
+    { beat_id: "beat-2", timestamp_ms: 1600 },
+  ]);
 });

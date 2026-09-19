@@ -1,20 +1,5 @@
 import { spawn } from "node:child_process";
 
-// Real bug found and fixed via direct verification (re-decoding actual
-// render output), not assumed: `-vsync vfr` on a concat of sparse still
-// images (one packet every ~2s+, no motion) produces a video stream real
-// decoders don't reliably hold to its declared end — re-decoding a test
-// render showed content stopping ~2s early even though the container
-// duration (matched to the audio) claimed the full length. Beats past that
-// point would never actually show. Fix: encode at a real constant frame
-// rate (`-vsync cfr -r OUTPUT_FPS`) so ffmpeg explicitly duplicates each
-// still image into real frames spanning its full duration — verified this
-// produces a stream where every beat's color shows at exactly the right
-// second, all the way to the end. Low FPS is fine (and cheap to encode,
-// libx264 skips near-identical duplicate frames) since these are static
-// screenshots, not motion video.
-export const OUTPUT_FPS = 5;
-
 // Needed by the real-recording render path to know a scene's actual
 // recorded duration — the last beat's on-screen time runs from its
 // checkpoint to the end of the real recording, not to another checkpoint.

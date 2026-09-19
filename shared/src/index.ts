@@ -6,10 +6,14 @@
 // shape is used for both compile-time typing and runtime validation at
 // system boundaries (API request bodies, Bedrock tool-use output).
 import { z } from "zod";
+import { VideoFormatIdSchema } from "./formats.js";
 
 export * from "./storageKeys.js";
+export * from "./formats.js";
+export * from "./duration.js";
+export * from "./visualDesign.js";
 
-export const VisualTypeSchema = z.enum(["code_highlight", "slide", "graph", "ui_demo"]);
+export const VisualTypeSchema = z.enum(["code_highlight", "slide", "graph", "ui_demo", "diagram", "chart"]);
 export type VisualType = z.infer<typeof VisualTypeSchema>;
 
 export const CodeHighlightSpecSchema = z.object({
@@ -40,11 +44,51 @@ export const UiDemoSpecSchema = z.object({
 });
 export type UiDemoSpec = z.infer<typeof UiDemoSpecSchema>;
 
-export const VisualSpecSchema = z.discriminatedUnion("visual_type", [
+// Architecture / flow diagram as data, not HTML: nodes and edges that the
+// renderer lays out and animates itself (visualDesign.ts), so diagrams look
+// consistent and can't come back broken the way model-written HTML can.
+export const DiagramNodeSchema = z.object({
+  id: z.string().min(1),
+  label: z.string().min(1).max(28),
+  detail: z.string().max(34).optional(),
+  emphasis: z.boolean().optional(),
+});
+export const DiagramEdgeSchema = z.object({
+  from: z.string().min(1),
+  to: z.string().min(1),
+  label: z.string().max(22).optional(),
+});
+export const DiagramSpecSchema = z
+  .object({
+    visual_type: z.literal("diagram"),
+    title: z.string().max(60).optional(),
+    nodes: z.array(DiagramNodeSchema).min(2).max(8),
+    edges: z.array(DiagramEdgeSchema).max(12),
+  })
+  .refine((d) => d.edges.every((e) => d.nodes.some((n) => n.id === e.from) && d.nodes.some((n) => n.id === e.to)), {
+    message: "Every edge must connect two existing node ids",
+  });
+export type DiagramSpec = z.infer<typeof DiagramSpecSchema>;
+
+// A bar chart. `source` is required on purpose: charts may only show numbers
+// that appear in the repo/README or that the user supplied, and the video shows
+// where they came from. Never invented metrics.
+export const ChartSpecSchema = z.object({
+  visual_type: z.literal("chart"),
+  title: z.string().min(1).max(70),
+  unit: z.string().max(24).default(""),
+  points: z.array(z.object({ label: z.string().min(1).max(28), value: z.number().finite() })).min(2).max(6),
+  source: z.string().min(1).max(80),
+});
+export type ChartSpec = z.infer<typeof ChartSpecSchema>;
+
+export const VisualSpecSchema = z.union([
   CodeHighlightSpecSchema,
   SlideSpecSchema,
   GraphSpecSchema,
   UiDemoSpecSchema,
+  DiagramSpecSchema,
+  ChartSpecSchema,
 ]);
 export type VisualSpec = z.infer<typeof VisualSpecSchema>;
 
@@ -66,6 +110,8 @@ export type Scene = z.infer<typeof SceneSchema>;
 export const ScriptSchema = z.object({
   repo_url: z.string(),
   user_context: z.string(),
+  // Which kind of video this is (see formats.ts). Old scripts predate it.
+  format: VideoFormatIdSchema.default("code_walkthrough"),
   scenes: z.array(SceneSchema),
 });
 export type Script = z.infer<typeof ScriptSchema>;
@@ -160,8 +206,59 @@ export type IngestRequest = z.infer<typeof IngestRequestSchema>;
 export const ScriptGenRequestSchema = z.object({
   ingest: IngestResultSchema,
   user_context: z.string().default(""),
+  format: VideoFormatIdSchema.default("code_walkthrough"),
+  // How long the finished video should be. Sets the narration word budget.
+  target_minutes: z.number().min(0.25).max(10).optional(),
+  // A script the user already wrote. When present the visuals are built around
+  // it and its wording is kept, instead of writing the narration from scratch.
+  source_script: z.string().max(12000).optional(),
 });
 export type ScriptGenRequest = z.infer<typeof ScriptGenRequestSchema>;
+
+// Two-stage script generation: a short planning call returns an outline (one
+// entry per scene, with a word budget), then each scene is written by its own
+// call that sees the shared repo context plus the whole outline. Small calls,
+// per-scene length control and retries, and no cap on how long a video can be.
+export const PlannedSceneSchema = z.object({
+  title: z.string(),
+  // What this scene must cover, including the specific repo facts to use.
+  purpose: z.string(),
+  target_words: z.number().int().positive(),
+  // Set when the user supplied their own script: this scene's slice of it.
+  source_text: z.string().optional(),
+});
+export type PlannedScene = z.infer<typeof PlannedSceneSchema>;
+
+export const ScriptPlanResponseSchema = z.object({ scenes: z.array(PlannedSceneSchema).min(1).max(16) });
+export type ScriptPlanResponse = z.infer<typeof ScriptPlanResponseSchema>;
+
+export const WriteSceneRequestSchema = z.object({
+  ingest: IngestResultSchema,
+  format: VideoFormatIdSchema.default("code_walkthrough"),
+  user_context: z.string().default(""),
+  outline: z.array(PlannedSceneSchema).min(1).max(16),
+  index: z.number().int().min(0),
+});
+export type WriteSceneRequest = z.infer<typeof WriteSceneRequestSchema>;
+
+// Rebuilding one scene (or one beat) from edited narration: the user changed
+// the wording, so the visuals are regenerated to match it. Wording is kept.
+export const SceneGenRequestSchema = z.object({
+  ingest: IngestResultSchema,
+  format: VideoFormatIdSchema.default("code_walkthrough"),
+  user_context: z.string().default(""),
+  scene_title: z.string().default(""),
+  narration: z.string().min(1).max(6000),
+  // "beat": exactly one beat (refresh a single visual). "scene": split into beats.
+  mode: z.enum(["scene", "beat"]),
+});
+export type SceneGenRequest = z.infer<typeof SceneGenRequestSchema>;
+
+export const SceneGenResponseSchema = z.object({
+  title: z.string(),
+  beats: z.array(BeatSchema).min(1),
+});
+export type SceneGenResponse = z.infer<typeof SceneGenResponseSchema>;
 
 export const LockScriptRequestSchema = z.object({
   script: ScriptSchema,

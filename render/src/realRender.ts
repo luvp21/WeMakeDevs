@@ -1,19 +1,19 @@
 import path from "node:path";
-import { writeFile } from "node:fs/promises";
 import { recordingKey, type LockedScript, type SceneCheckpoints } from "@vaani/shared";
 import { downloadToFile } from "./s3.js";
-import { beatVisualHtml } from "./visuals.js";
-import { screenshotHtml } from "./screenshot.js";
-import { runFfmpeg, getMediaDurationMs, OUTPUT_FPS } from "./ffmpeg.js";
+import { demoFrameHtml } from "@vaani/shared";
+import { beatVisualHtml, chromeFor } from "./visuals.js";
+import { getMediaDurationMs } from "./ffmpeg.js";
+import { assembleScene, frameCounts, renderBeatClip, renderFootageClip } from "./beatClip.js";
 
 // Minimum on-screen hold per beat, inspired by /brag's pacing rule ("~0.8s
 // for labels holding long enough to absorb") — a real checkpoint gap this
 // small only happens when the sync algorithm's stall-skip fires close
 // together, and a visual flashing for a handful of frames reads as a glitch,
 // not a deliberate cut. This is a floor, not a target: real gaps are
-// normally much longer, and `-shortest` below still caps the scene's total
-// length to the real recording's audio, so inflating one beat can only ever
-// eat into later beats' slack, never desync from the real voice track.
+// normally much longer, and `-shortest` (assembleScene) still caps the scene
+// to the real recording's audio, so inflating one beat can only ever eat
+// into later beats' slack, never desync from the real voice track.
 //
 // Deliberately NOT /brag's fuller word-count rule (~0.3s per word, min 1.2s
 // for full sentences): /brag controls its own timing freely, but this
@@ -24,36 +24,23 @@ import { runFfmpeg, getMediaDurationMs, OUTPUT_FPS } from "./ffmpeg.js";
 // real speech pacing) should be overridden here.
 const MIN_BEAT_HOLD_SECONDS = 0.8;
 
-// Same FFmpeg concat-demuxer quirk as the fallback path's buildImageConcatList
-// (index.ts) — duplicated rather than shared because this version also
-// applies the minimum-hold floor, which the fallback path's Polly-derived
-// durations (see narration/index.ts) never need in practice.
-function buildImageConcatList(entries: { file: string; durationSeconds: number }[]): string {
-  const lines: string[] = [];
-  for (const entry of entries) {
-    const durationSeconds = Math.max(MIN_BEAT_HOLD_SECONDS, entry.durationSeconds);
-    lines.push(`file '${entry.file}'`);
-    lines.push(`duration ${durationSeconds.toFixed(3)}`);
-  }
-  const last = entries[entries.length - 1];
-  if (last) lines.push(`file '${last.file}'`);
-  return lines.join("\n");
-}
-
 // Real-recording render path (CLAUDE.md #1's primary path, not the Polly
 // fallback): visuals cut in full-screen at each beat's real sync checkpoint,
 // with the scene's actual recorded audio (the presenter's real voice)
 // playing throughout — see docs/ARCHITECTURE.md's "cut/overlay visuals at
 // the checkpoint timestamps." Picture-in-picture / face-visible-alongside-
 // visual treatment is explicitly cosmetic per docs/FEATURES.md and not done
-// here; this is the must-have baseline.
+// here; this is the must-have baseline. Each beat is an animated clip
+// (beatClip.ts) so a cut lands as an entrance, not a hard jump.
 export async function renderSceneFromRecording(
   locked: LockedScript,
   sceneCheckpoints: SceneCheckpoints,
   sceneId: string,
   workDir: string,
 ): Promise<string> {
-  const scene = locked.script.scenes.find((s) => s.id === sceneId);
+  const scenes = locked.script.scenes;
+  const sceneIndex = scenes.findIndex((s) => s.id === sceneId);
+  const scene = scenes[sceneIndex];
   if (!scene) throw new Error(`Scene ${sceneId} missing from script`);
 
   const { checkpoints } = sceneCheckpoints;
@@ -72,38 +59,47 @@ export async function renderSceneFromRecording(
   await downloadToFile(recordingKey(locked.script_id, sceneId, "webm"), recordingPath);
   const recordingDurationMs = await getMediaDurationMs(recordingPath);
 
-  const imageEntries: { file: string; durationSeconds: number }[] = [];
+  const durations = scene.beats.map((_, i) => {
+    // The first beat owns everything before the first spoken word (the
+    // silence between pressing record and speaking). Measuring it from its own
+    // checkpoint instead drops that lead-in from the video, and since the
+    // audio keeps it, every later cut would land early by exactly that long.
+    const startMs = i === 0 ? 0 : checkpoints[i].timestamp_ms;
+    const endMs = i + 1 < checkpoints.length ? checkpoints[i + 1].timestamp_ms : recordingDurationMs;
+    return Math.max(MIN_BEAT_HOLD_SECONDS, Math.max(0, endMs - startMs) / 1000);
+  });
+  const frames = frameCounts(durations);
+
+  // Start time of each beat within the recording, for cutting demo footage.
+  const startsSeconds: number[] = [];
+  durations.reduce((elapsed, d) => {
+    startsSeconds.push(elapsed);
+    return elapsed + d;
+  }, 0);
+
+  const clipPaths: string[] = [];
   for (let i = 0; i < scene.beats.length; i++) {
     const beat = scene.beats[i];
-    const startMs = checkpoints[i].timestamp_ms;
-    const endMs = i + 1 < checkpoints.length ? checkpoints[i + 1].timestamp_ms : recordingDurationMs;
-    const durationSeconds = Math.max(0, endMs - startMs) / 1000;
-
-    const html = await beatVisualHtml(beat, locked.ingest);
-    const imagePath = path.join(workDir, `${beat.id}.png`);
-    await screenshotHtml(html, imagePath);
-    imageEntries.push({ file: `${beat.id}.png`, durationSeconds });
+    const chrome = chromeFor(scenes, sceneIndex, i);
+    if (beat.visual_spec.visual_type === "ui_demo") {
+      // The presenter showed the product during this beat: use that footage.
+      clipPaths.push(
+        await renderFootageClip({
+          frameHtml: demoFrameHtml(beat.visual_spec.note || "Live demo", chrome),
+          recordingPath,
+          startSeconds: startsSeconds[i],
+          frames: frames[i],
+          workDir,
+          id: beat.id,
+        }),
+      );
+      continue;
+    }
+    const html = await beatVisualHtml(beat, locked.ingest, chrome);
+    clipPaths.push(await renderBeatClip({ html, frames: frames[i], workDir, id: beat.id }));
   }
 
-  const listPath = path.join(workDir, `${sceneId}-images.txt`);
-  await writeFile(listPath, buildImageConcatList(imageEntries));
-
   const sceneVideoPath = path.join(workDir, `${sceneId}.mp4`);
-  await runFfmpeg([
-    "-f", "concat",
-    "-safe", "0",
-    "-i", listPath,
-    "-i", recordingPath,
-    "-map", "0:v:0",
-    "-map", "1:a:0",
-    "-r", String(OUTPUT_FPS),
-    "-vsync", "cfr",
-    "-pix_fmt", "yuv420p",
-    "-c:v", "libx264",
-    "-c:a", "aac",
-    "-shortest",
-    sceneVideoPath,
-  ]);
-
+  await assembleScene({ clipPaths, audioPath: recordingPath, outPath: sceneVideoPath, workDir, sceneId });
   return sceneVideoPath;
 }

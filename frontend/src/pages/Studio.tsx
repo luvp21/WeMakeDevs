@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
-import type { IngestResult, NarrationResult, ProjectDetail, RenderStatus, Script } from "@vaani/shared";
-import { RepoForm, type GeneratePhase } from "@/components/RepoForm";
+import type { IngestResult, NarrationResult, ProjectDetail, RenderStatus, Script, VideoFormatId } from "@vaani/shared";
+import { RepoForm, type GenerateStatus } from "@/components/RepoForm";
 import { ScriptReview } from "@/components/ScriptReview";
 import { NarrationPanel } from "@/components/NarrationPanel";
 import { RenderPanel } from "@/components/RenderPanel";
@@ -12,6 +12,7 @@ import { Stepper, type StepId, type StepState } from "@/components/Stepper";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import * as api from "@/lib/api";
+import { generateInSteps } from "@/lib/generate";
 
 const RENDER_POLL_INTERVAL_MS = 3000;
 
@@ -50,7 +51,7 @@ export default function Studio() {
   const navigate = useNavigate();
 
   const [active, setActive] = useState<StepId>("repo");
-  const [phase, setPhase] = useState<GeneratePhase | null>(null);
+  const [generateStatus, setGenerateStatus] = useState<GenerateStatus | null>(null);
   const [locking, setLocking] = useState(false);
   const [loadingProject, setLoadingProject] = useState(!!id);
   const [ingestResult, setIngestResult] = useState<IngestResult | null>(null);
@@ -109,20 +110,26 @@ export default function Studio() {
     return () => clearTimeout(timer);
   }, [lockedScriptId, renderStatus]);
 
-  async function handleGenerate(repoUrl: string, userContext: string) {
+  async function handleGenerate(
+    repoUrl: string,
+    userContext: string,
+    format: VideoFormatId,
+    options: api.GenerateOptions,
+  ) {
     setError(null);
-    setPhase("ingest");
+    setGenerateStatus({ phase: "ingest" });
     try {
       const ingest = await api.ingestRepo(repoUrl);
       setIngestResult(ingest);
-      setPhase("script");
-      const generated = await api.generateScript(ingest, userContext);
+      const generated = await generateInSteps(ingest, userContext, format, options, (progress) =>
+        setGenerateStatus(progress),
+      );
       setScript(generated);
       setActive("script");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unexpected error");
     } finally {
-      setPhase(null);
+      setGenerateStatus(null);
     }
   }
 
@@ -140,6 +147,62 @@ export default function Studio() {
       setError(err instanceof Error ? err.message : "Unexpected error");
     } finally {
       setLocking(false);
+    }
+  }
+
+  // Editing wording regenerates the visual to match it, and the recorder's
+  // teleprompter reads the same beat text, so both follow the edit.
+  async function handleRegenerateBeat(sceneId: string, beatId: string, text: string) {
+    if (!script || !ingestResult) return;
+    const scene = script.scenes.find((s) => s.id === sceneId);
+    try {
+      const result = await api.regenerateScene({
+        ingest: ingestResult,
+        format: script.format,
+        userContext: script.user_context,
+        sceneTitle: scene?.title ?? "",
+        narration: text,
+        mode: "beat",
+      });
+      const fresh = result.beats[0];
+      setScript((current) =>
+        current && {
+          ...current,
+          scenes: current.scenes.map((s) =>
+            s.id !== sceneId
+              ? s
+              : { ...s, beats: s.beats.map((b) => (b.id !== beatId ? b : { ...fresh, id: beatId, text })) },
+          ),
+        },
+      );
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Couldn't update the visual");
+    }
+  }
+
+  async function handleRewriteScene(sceneId: string, text: string) {
+    if (!script || !ingestResult) return;
+    const scene = script.scenes.find((s) => s.id === sceneId);
+    try {
+      const result = await api.regenerateScene({
+        ingest: ingestResult,
+        format: script.format,
+        userContext: script.user_context,
+        sceneTitle: scene?.title ?? "",
+        narration: text,
+        mode: "scene",
+      });
+      setScript((current) =>
+        current && {
+          ...current,
+          scenes: current.scenes.map((s) =>
+            s.id !== sceneId ? s : { ...s, title: s.title || result.title, beats: result.beats },
+          ),
+        },
+      );
+      toast.success("Scene rebuilt from your wording");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Couldn't rebuild the scene");
     }
   }
 
@@ -183,7 +246,7 @@ export default function Studio() {
     {
       id: "video",
       done: renderStatus?.status === "done",
-      reachable: synced || !!narration,
+      reachable: synced || !!narration || !!renderStatus,
       blockedReason: "Sync your recordings first",
     },
   ];
@@ -228,7 +291,7 @@ export default function Studio() {
           </Alert>
         )}
 
-        {active === "repo" && <RepoForm onSubmit={handleGenerate} phase={phase} />}
+        {active === "repo" && <RepoForm onSubmit={handleGenerate} status={generateStatus} />}
 
         {active === "script" && script && (
           <ScriptReview
@@ -236,6 +299,8 @@ export default function Studio() {
             onChange={setScript}
             onLock={handleLock}
             onContinue={() => setActive("record")}
+            onRegenerateBeat={handleRegenerateBeat}
+            onRewriteScene={handleRewriteScene}
             locking={locking}
             lockedScriptId={lockedScriptId}
             ingestResult={ingestResult}
@@ -281,7 +346,7 @@ export default function Studio() {
 
         {active === "video" && (
           <RenderPanel
-            canRender={!!narration || synced}
+            canRender={!!narration || synced || !!renderStatus}
             usingRealRecording={synced}
             renderStatus={renderStatus}
             onRender={handleRender}
