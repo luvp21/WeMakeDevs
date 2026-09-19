@@ -1,0 +1,19 @@
+{
+  "name": "vaani-ai",
+  "private": true,
+  "version": "0.0.0",
+  "workspaces": [
+    "shared",
+    "backend",
+    "frontend",
+    "render"
+  ],
+  "scripts": {
+    "dev:backend": "npm run build:shared && npm run dev --workspace backend",
+    "dev:frontend": "npm run build:shared && npm run dev --workspace frontend",
+    "build:shared": "npm run build --workspace shared",
+    "build:backend": "npm run build:shared && npm run build --workspace backend",
+    "build:frontend": "npm run build:shared && npm run build --workspace frontend",
+    "build:render": "npm run build:shared && npm run build --workspace render"
+  }
+}

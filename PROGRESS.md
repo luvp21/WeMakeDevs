@@ -1,0 +1,710 @@
+# Progress log
+
+Update this at the end of every work session, or every time a coding agent finishes a chunk of work. This is the memory of the build across sessions, keep it honest, note what broke, not just what's done.
+
+## Friday, Sept 18
+
+- [x] AWS credit form submitted / account created (IAM user `vaani-dev` set up, AWS CLI +
+      SAM CLI installed and authenticated)
+- [ ] First Commit check-in confirmed (both members)
+- [ ] Builder Center profiles verified (both members)
+- [x] Repo ingest working
+- [x] Hinglish script generation working, beat-tagged — **tested live end-to-end, but currently
+      running on Gemini (now the primary provider, see decision below)**
+- [x] Script review UI
+
+Notes:
+- **DECISION (Sat Sept 19): Gemini is the primary LLM; not switching back to Bedrock.** The
+  organizers (We Make Dev Teams, email from Kunal) confirmed Bedrock is not mandatory, Free Tier
+  is fully prize-eligible, and the only requirement is deploying on AWS. Script-gen runs on
+  Gemini inside our AWS Lambda. `LLM_PROVIDER` now defaults to `gemini`; `template.yaml` passes
+  `GEMINI_API_KEY` via a NoEcho `GeminiApiKey` parameter (deploy with
+  `--parameter-overrides GeminiApiKey=...`). The Bedrock client stays in the repo as an unused
+  alternative. This supersedes the earlier "do not submit on Gemini" note and the Bedrock
+  decision in CLAUDE.md/docs; the AWS support case is no longer blocking anything.
+- **AWS Bedrock blocker, exhaustively diagnosed, unresolved as of Friday evening:** account
+  (979973571368, IAM user `vaani-dev`, AdministratorAccess) has been unable to invoke any
+  Bedrock model for 4-5+ days — well past AWS's stated "verification normally takes less than 2
+  hours." Ruled out everything on our side: tested IAM credentials AND a Bedrock API bearer key
+  (two different auth mechanisms), bare model IDs, cross-region inference profile IDs, and full
+  inference-profile ARNs, across us-east-1/us-west-2/ap-south-1, against Nova/gpt-oss/Llama/
+  Mistral/DeepSeek/the exact model (openai.gpt-6-astra) that works in the console Playground —
+  every single combination fails identically with `ValidationException: Operation not allowed`.
+  Bedrock's on-demand service quotas are all `0.0` account-wide vs. AWS's non-zero defaults. The
+  console Playground working is not contradictory evidence — it almost certainly uses an
+  internal console-only invocation path, not the public `bedrock-runtime` API our code needs.
+  **(No longer blocking, see decision above.) Action taken:** filed an AWS support case (Account and billing, free tier) and emailed
+  aws-verification@amazon.com Friday evening; also pursuing the hackathon's AWS rep channel.
+  **No further diagnosis possible from our side — purely waiting on AWS now.**
+- Claude models specifically are also access-denied on this account regardless of the above (per
+  Bedrock console Model Access page) — moot until the account-level block clears anyway, but
+  worth knowing this account may need a separate Claude access request even after that.
+- Secondary finding worth keeping for later: in `us-west-2`, `amazon.nova-micro-v1:0` rejected
+  on-demand invocation and asked for an inference-profile ARN instead of a raw model ID — some
+  models in some regions require a cross-region inference profile, not the base model ID.
+  Unrelated to the verification block, relevant once we're back to picking a region/model.
+- **Gemini stopgap** (`backend/src/lib/llm/`): built a provider-agnostic `LlmClient` interface
+  (`converseWithForcedTool`) with `BedrockClient` and `GeminiClient` implementations, switched
+  via `LLM_PROVIDER` env var (defaults to `"bedrock"` if unset, so any environment that forgets
+  to set it fails toward the correct locked architecture rather than silently staying on
+  Gemini). `scriptGen.ts` now builds a plain provider-agnostic `ToolDefinition` instead of a
+  Bedrock-specific `Tool` type. Uses `@google/genai` (`gemini-flash-latest` by default, override
+  via `GEMINI_MODEL`).
+- **Real bug found and fixed while wiring Gemini up:** `GEMINI_MODEL=` left as an empty string
+  in `.env` (not unset) silently defeated the `??` fallback — `?? ` only replaces
+  `null`/`undefined`, not `""`. Same latent bug existed in the Bedrock model-ID fallback too
+  (harmless there only because `.env.example`'s default isn't blank). Fixed both to use `||`.
+- **Real Gemini platform limit discovered and worked around:** Gemini's forced function-calling
+  (`FunctionCallingConfigMode.ANY`) hard-rejects any tool parameter schema with 8+ properties on
+  one object with a bare `400 INVALID_ARGUMENT` — confirmed empirically by bisection, independent
+  of which properties or their names. Our beat schema had 9. Restructured `RawBeat` (internal to
+  script-gen, NOT the cross-track `Beat`/`VisualSpec` contract, so this didn't require
+  re-agreeing anything in `docs/ARCHITECTURE.md`) down to 5 properties: `start_line`/`end_line`
+  merged into one `line_range: "10-25"` string, `language` dropped (now inferred from
+  `file_path`'s extension in code instead of asked of the model), and `html`/`description`/
+  `note` collapsed into one generic `content` field interpreted per `visual_type`. Bisection
+  script and scratch files cleaned up after use.
+- **Live end-to-end test against real Gemini passed:** ran ingest → script-gen against
+  `vercel/ms` with real user context. Output quality is strong — natural code-switched Hinglish
+  ("Toh aaj hum dekhenge...", "Sabse pehle code ke top pe dekho..."), correct scene/beat
+  structure, real file paths + plausible line ranges from the actual ingested source, language
+  auto-inferred correctly, and contextually accurate HTML slides (a regex breakdown, an
+  execution-flow diagram) grounded in the repo's real code, not generic filler.
+- Stack chosen and confirmed with user: Node.js + TypeScript + AWS SAM for backend Lambda
+  functions; React + Vite + TypeScript + Tailwind + shadcn/ui for frontend. npm workspaces
+  monorepo: `shared/` (contract types + Zod schemas), `backend/`, `frontend/`.
+- `shared/` is the single source of truth for the Scene/Beat/Script/Checkpoint contract from
+  `docs/ARCHITECTURE.md`, as Zod schemas with types inferred from them — both frontend and
+  backend import the same shapes and validate against them at every API boundary (per this
+  user's own security/coding-style rules: never trust external input, request bodies, or
+  Bedrock's response without runtime validation).
+- **Repo ingest** (`backend/src/lib/ingest.ts`): pulls README + package files + up to 12 capped
+  sample source files via the GitHub REST/raw API, not `git clone` — Lambda has no git binary
+  and a full clone is more than a capped sample needs. Tested live against
+  `octocat/Hello-World` and `vercel/ms` through the local Express dev server; works, returns
+  correctly capped results. Doesn't yet deprioritize test files in the sample selection — first
+  N source files by path depth, so `*.test.ts` can crowd out other files on some repos. Minor,
+  fix later if it matters.
+- **Script generation** (`backend/src/lib/scriptGen.ts` + `backend/src/lib/llm/`): forced
+  tool-call pattern (`emit_script`) so the response is structured JSON, not parsed free-text.
+  System prompt includes real Hinglish example lines per CLAUDE.md #5. LLM output is validated
+  with `RawScriptOutputSchema.parse()` before use — untrusted external data like anything else.
+  Provider details (Bedrock vs. the Gemini stopgap) covered above — see that note before
+  touching this file, especially the "before submission" TODO.
+- `BEDROCK_MODEL_ID` defaults to `anthropic.claude-3-5-sonnet-20241022-v2:0` in
+  `backend/src/lib/llm/bedrock.ts` and `.env.example` — a known-good placeholder, not yet
+  confirmed against this account's actual Bedrock model access (still blocked, see above). Check
+  this once Bedrock access clears, before relying on script gen working on the real provider.
+- **Script review UI**: repo URL + context form → generating skeleton state → editable
+  scene/beat cards (inline textarea per beat, editable scene titles) → lock button. Built with
+  React + Vite + Tailwind + shadcn/ui (base-nova style, `@base-ui/react` primitives). Verified
+  in a real browser via Claude in Chrome: form renders, ingest call succeeds and shows the
+  ingested-file summary, loading/error states both render correctly.
+- Backend also runs as a plain Express server (`backend/src/local-server.ts`) wrapping the same
+  lib functions the Lambda handlers call, specifically so local dev doesn't depend on SAM CLI.
+  `backend/template.yaml` has the real SAM deploy config (3 Lambdas behind one HTTP API, S3
+  bucket, Bedrock IAM policy) — still untested with an actual `sam deploy`, though AWS CLI + SAM
+  CLI are now installed and the account authenticates fine (S3 works; only Bedrock is blocked).
+- AWS CLI 2.36.48 and SAM CLI 1.166.2 installed to `~/.local/bin` (no sudo on this machine),
+  already on PATH via `.zshrc`. IAM user `vaani-dev` (AdministratorAccess) configured and
+  working for everything except Bedrock (see blocker above).
+- Incident: a short-term Bedrock API bearer key got briefly exposed in a chat transcript during
+  setup (a redaction command only handled one of two `.zshrc` lines). User revoked it
+  immediately. No lasting exposure — it was a 12h-expiry key and is now revoked — but noting it
+  since it happened.
+- Caught and fixed before it became a real bug: `shared/package.json` originally pointed
+  `main`/`types` straight at `src/index.ts`. That works in dev (`tsx` and Vite both transpile
+  TS on the fly, including through the workspace symlink) but would have broken at actual
+  Lambda runtime, since a plain `tsc` build + Node can't execute a raw `.ts` file. Fixed:
+  `shared` now builds to `dist/` and `main`/`types` point there; `build:backend`/
+  `build:frontend`/`dev:*` all run `build:shared` first. Rebuilt and reverified everything
+  after the fix — ingest still works end to end through the local server.
+- Minor tooling note: `npx shadcn@latest add ...` wrote generated component files into a
+  literal `./@/...` directory instead of resolving the `@` alias to `./src` — a bug in this
+  environment/CLI version, not a project config issue (tsconfig/vite alias config is correct).
+  Worked around by moving the files manually. If running `shadcn add` again, check
+  `find frontend -maxdepth 1 -name '@'` afterward and relocate if it reappears.
+
+## Saturday, Sept 19
+
+- [x] Visual generation per beat — see note below on what this actually meant
+- [x] Polly Kajal narration wired up — real backend pipeline verified end to end; one small
+      manual check still open, see note below
+- [x] Fallback video complete end to end — **deployed for real and verified against the actual
+      AWS stack, not just locally.** repo → script → visuals → Kajal narration → rendered MP4,
+      running on real Lambda + real Fargate. See note below.
+- [x] Teleprompter recording UI — webcam capture, scene by scene, **verified with a real
+      recording in a real browser**, not simulated. See note below.
+- [ ] Tab-picker capture for UI-demo scenes — good-to-have per docs/FEATURES.md, not attempted
+      (SCOPE_PLAN.md phrases it as "if attempting that feature")
+- [x] Transcribe integration confirmed on a real test recording — mechanically works end to end
+      (job start → poll → parse), but surfaced a real problem for the sync algorithm's real-world
+      accuracy on code-switched content. See note below — this needs a decision before Sunday's
+      "wire sync to a real recording" task.
+- [x] Two-pointer sync algorithm built + unit-tested — built and passing in isolation, per
+      docs/SYNC_ALGORITHM.md's own instruction to verify this before it ever touches a real
+      recording; not yet wired to Transcribe/real audio (that's still open, needs the
+      recording UI + Transcribe integration first)
+
+Notes:
+- **Visual generation turned out to already be mostly done by script-gen itself** —
+  `docs/ARCHITECTURE.md`'s data contract has `visual_spec` as part of stage 2's output, and our
+  script-gen call already produces real HTML for `slide`/`graph` beats and real file/line refs
+  for `code_highlight` beats in the same LLM call (confirmed in the live Gemini test). What was
+  actually missing was *rendering* those into a visual — built `frontend/src/components/
+  VisualPreview.tsx`: `code_highlight` renders via `react-syntax-highlighter` against the real
+  ingested file content (matched by `file_path`) with the target lines tinted and
+  auto-scrolled into view (a real UX gap caught and fixed — highlighted ranges deep in a file
+  were invisible without this); `slide`/`graph` render their `html` in a fully sandboxed iframe
+  (`sandbox=""`, no scripts, no same-origin) since LLM-authored HTML is untrusted content, never
+  `dangerouslySetInnerHTML`'d into the main page. Wired into `ScriptReview.tsx`, sourced from
+  the ingest result already held in frontend state from the same session.
+- Verified live in-browser against `vercel/ms`: both HTML slides and code-highlight previews
+  render correctly, including a beat highlighting lines deep in the file (27-32) where the
+  auto-scroll fix was needed to actually see it.
+- Known minor items, not urgent: production bundle is ~977KB (333KB gzipped), mostly
+  `react-syntax-highlighter`'s full Prism language bundle — could switch to `PrismLight` with
+  only registered languages later if load time becomes a real concern. Not fixed now.
+- Still open from this milestone: this only covers `slide`/`graph`/`code_highlight`. `ui_demo`
+  is explicitly a good-to-have (`docs/FEATURES.md`) and just shows a placeholder — correct,
+  don't build more for it yet.
+- **Polly Kajal narration** (`backend/src/lib/narration/`): synthesizes each beat's text
+  separately via Polly (`VoiceId=Kajal`, `Engine=neural` by default, `POLLY_ENGINE=generative`
+  available), concatenates a scene's beat audio into one MP3 (`Buffer.concat` — pragmatic, not
+  frame-perfect, acceptable for a fallback demo), uploads to S3, returns a presigned URL
+  (1h expiry) + per-beat offsets. Since we generate the audio ourselves, each beat's exact
+  duration comes straight from `music-metadata` parsing the synthesized MP3 — **no transcription
+  or two-pointer sync needed for this path**, cumulative beat durations directly become the
+  checkpoints the render step will need. New endpoint `POST /api/narrate { script_id }`, fetches
+  the locked script from S3 rather than re-accepting it over the wire. Frontend:
+  `NarrationPanel.tsx`, one `<audio controls>` per scene, wired into `App.tsx` after lock.
+- **Verified via direct testing (not just believed to work):** full pipeline tested with `curl`
+  end to end — locked a script, called `/api/narrate`, downloaded the resulting presigned S3
+  URL, confirmed with `file`/`ffprobe` it's a valid MP3 with duration (9.919s) matching the
+  computed sum of beat durations (9912ms) to within 7ms. Also drove the *actual UI* through
+  Claude in Chrome: ingest → script-gen → lock → narrate all fired as real network calls (all
+  200s) through real clicks, not simulated. Confirmed via direct DOM inspection that the
+  `<audio>` elements render with correct presigned `src` URLs, one per scene.
+- **One thing NOT fully closed out:** couldn't get 100% conclusive proof of actual in-browser
+  playback (not "does the data exist and is it valid" — already proven above — but "does
+  clicking play in a real browser tab produce sound"). Hit real tooling limits chasing this:
+  the browser tab used for testing showed unrelated flakiness all session (repeated CDP
+  screenshot timeouts), Chrome's native direct-media-URL viewer doesn't expose to automation,
+  and a `fetch()`-based check hit CORS (expected — CORS doesn't apply to `<audio src>` loads,
+  only to `fetch()`, so that failure doesn't indicate a real problem). Given the underlying data
+  is independently verified correct, this is very likely fine, but **do one 5-second manual
+  check**: open the app in a normal browser, generate narration, click play on a scene, confirm
+  audio comes out. Flagging honestly rather than claiming full verification I don't have.
+- **AWS credentials note:** created a real S3 bucket for this
+  (`vaani-ai-979973571368-us-east-1`, public access blocked, presigned URLs only) since none
+  existed yet — SAM's `template.yaml` creates one on deploy but we're still on the local Express
+  server. `backend/.env`'s `S3_BUCKET`/`AWS_REGION` point at it now.
+- **Second credential-exposure incident, same category as the earlier Bedrock bearer-token
+  leak:** used the `Read` tool directly on `backend/.env` to update it, which printed the
+  Gemini API key in plaintext into the conversation. User asked to revoke/regenerate it via
+  Google AI Studio. Going forward: never `Read` a file known to hold secrets — presence-only
+  checks (`grep -c`) only, exactly like the AWS-credentials handling already established.
+  Also note for future sessions: presigned S3 URLs were treated as lower-severity than
+  long-lived keys when debugging narration playback (time-limited to 1h, scoped to one object,
+  designed to be shareable) — reasonable, but keep being deliberate about what gets read vs.
+  presence-checked.
+
+- **Render stage (stage 8, Fargate — never Lambda per CLAUDE.md #6) built, new `render/`
+  workspace.** New npm workspace, not deployed as a Lambda — it's a one-off container run via
+  ECS `RunTask` (not a long-running service, so cost is only actual render runtime).
+  - `render/src/visuals.ts`: turns a beat into a fixed 1280x720 HTML page ready to screenshot.
+    `code_highlight` uses `shiki`'s `decorations` API for VS-Code-quality syntax highlighting
+    (server-side, no browser needed for this part) against the real ingested file content, with
+    a ±5-line context window around the target range (screenshotting an entire huge file isn't
+    useful). `slide`/`graph` just wrap the beat's already-LLM-generated `html`. `ui_demo` shows
+    a placeholder (it's a good-to-have, matches the visual-preview decision from earlier).
+  - `render/src/screenshot.ts`: Playwright/Chromium screenshots each beat's HTML at exactly
+    1280x720, so every frame is already the right size for ffmpeg, no scaling step needed.
+  - `render/src/ffmpeg.ts` + `index.ts`: per scene, builds an ffmpeg concat-demuxer image list
+    where each beat's screenshot holds for exactly its narration duration (from
+    `NarrationResult`), muxes with that scene's real audio track, then concatenates all scene
+    videos (stream copy, no re-encode) into the final MP4. Uploads to S3, writes status
+    throughout (`pending → running → done`/`error`) so the frontend can poll.
+  - New endpoints: `POST /api/render { script_id }` (fires `ecs:RunTask`, returns immediately)
+    and `GET /api/render/:scriptId/status` (backend generates a *fresh* presigned URL for the
+    video on each read when done, rather than trusting a URL the worker wrote once — presigned
+    URLs expire, worker-write and status-read can be arbitrarily far apart). Frontend:
+    `RenderPanel.tsx`, polls every 3s while pending/running, shows a `<video controls>` when done.
+  - **Real gap found and fixed along the way:** the render worker needs actual source file
+    content for `code_highlight` beats and the real narration timing, but neither was ever
+    persisted server-side before now — `IngestResult` only lived in the frontend's browser
+    session, and `NarrationResult` was only ever returned to the caller, never stored. Fixed
+    both: `LockedScript` now includes `ingest`, and `narrateScript()` now persists its result to
+    S3. Centralized all S3 key naming (`shared/src/storageKeys.ts`) since backend and render are
+    genuinely separate codebases now — a string-literal typo between them would've been a
+    silent, hard-to-spot bug.
+  - **New AWS infrastructure added to `template.yaml`** (validates clean with `sam validate
+    --lint`, fixed two real issues it caught: an em-dash in a resource description AWS's naming
+    pattern rejects, and `nodejs20.x` — already deprecated as of this environment's "today",
+    April 2026 — bumped to `nodejs24.x` project-wide): ECR repo, ECS cluster, a Fargate task
+    definition (2 vCPU / 4GB — Chromium + ffmpeg need real headroom), a security group
+    (outbound-only), and IAM roles scoped to exactly S3 get/put + ECS RunTask + the two task
+    roles' PassRole, nothing broader. VpcId/SubnetIds are template Parameters (account's default
+    VPC — looked up via CLI, no new VPC needed) rather than hardcoded, since they're
+    account/region-specific.
+  - **Extensively validated locally before ever touching Docker**, since the Docker daemon on
+    this machine needs `sudo` to start and isn't running yet (asked the user to start it,
+    still pending as of this note): confirmed the Shiki decorations API behaves exactly as
+    assumed (0-indexed, half-open range) with a standalone script; confirmed the *entire* ffmpeg
+    pipeline (per-scene image+audio assembly, then final stream-copy concat) produces valid,
+    correctly-timed MP4s using synthetic test assets; installed Playwright's Chromium locally
+    (browser binary only, no `--with-deps`, worked without needing the sudo it wanted) and ran
+    the real `beatVisualHtml` + `screenshotHtml` integration for both `code_highlight` and
+    `slide` beats against real inputs — actually looked at the resulting PNGs. Caught and fixed
+    a real cosmetic bug this way: Shiki's per-line `<span class="line">` elements need
+    `display: block` set on *all* lines, not just highlighted ones, or the newline text nodes
+    between spans create visible gaps between consecutive highlighted lines instead of one
+    continuous block. **The only genuinely untested pieces are the Docker image build itself and
+    an actual `ecs:RunTask` execution** — but every individual piece of logic inside that
+    container has now been proven correct in isolation, so that remaining risk is much smaller
+    than it would otherwise be.
+- **Deployed for real — Docker came up, and the whole thing went from "locally validated" to
+  "actually running on AWS" in one session.**
+  - **Real bug found deploying Lambda from an npm-workspaces monorepo, worth remembering:**
+    `CodeUri: .` zipping `backend/` as-is would have shipped Lambda code with no `node_modules`
+    at all — npm workspaces hoists every dependency to the *repo root*, not `backend/`. `sam
+    build`'s default Node builder doesn't know about workspaces either. Fixed by switching every
+    function to `Metadata: BuildMethod: esbuild` (bundles the resolved workspace deps, including
+    `@vaani/shared`, straight into one file per function — no separate npm install needed at
+    build time). Needed `esbuild` explicitly as a `backend` devDependency and on `PATH` for `sam
+    build` to find it (`node_modules/.bin` from the repo root, since that's where hoisting put
+    it). One non-obvious gotcha: esbuild's output flattens `handlers/ingest.ts` → `ingest.js` at
+    the build dir's root, not `handlers/ingest.js` — `Handler:` had to match that (was wrong on
+    the first attempt, `sam build` succeeded anyway since it doesn't validate the handler path,
+    only `sam deploy`/actual invoke would have caught it).
+  - Also bumped `nodejs20.x` → `nodejs24.x` (SAM's linter flagged it as already deprecated as of
+    this environment's "today", April 2026) while fixing the template.
+  - **Deploy hit a real conflict**: the S3 bucket I'd manually created earlier for local testing
+    (`vaani-ai-979973571368-us-east-1`) collided with the one `template.yaml` declares under the
+    same deterministic name — CloudFormation's early-validation rejected the changeset outright.
+    Asked the user how to resolve it rather than unilaterally deleting real cloud state; they
+    chose deleting the test bucket (it only held this session's own throwaway test data) over
+    renaming, confirmed contents were just test artifacts before deleting.
+  - `sam deploy --stack-name vaani-backend --region us-east-1 --resolve-s3 --capabilities
+    CAPABILITY_IAM --parameter-overrides VpcId=... SubnetIds=...` — succeeded, created all 6
+    Lambdas, the HTTP API, S3 bucket, ECR repo, ECS cluster, Fargate task definition, security
+    group, and IAM roles in one shot. Built and pushed the render image to the new ECR repo.
+  - **Ran the real thing end to end against the deployed stack** (not local docker run this
+    time): hit the real API Gateway URL for `/ingest` → `/script/lock` → `/narrate` (all real
+    Lambda invocations — noticed the presigned URLs came back signed with `ASIA...` temporary
+    role credentials, not my own `AKIA...` user creds, confirming the Lambdas' own IAM roles are
+    what's actually doing the work) → `/render`. Confirmed via `aws ecs list-tasks` that a real
+    Fargate task launched, watched it go `PENDING → DEPROVISIONING/STOPPED` with **exit code 0**,
+    polled `/render/:id/status` and got back `"done"` with a working presigned video URL.
+    Downloaded and `ffprobe`'d the actual output: valid MP4, duration matched the narration total
+    exactly. **This is the full fallback path — repo → script → visuals → Kajal narration →
+    rendered video — running for real on deployed AWS infrastructure, not simulated or
+    locally-only.**
+  - Updated `backend/.env`'s `ECS_*` values from the deployed stack's actual resource IDs so
+    local dev can also trigger real renders against the same infrastructure going forward.
+
+- **Two-pointer sync algorithm** (`backend/src/lib/sync/`) — the piece `docs/FEATURES.md` calls
+  "the hardest and most novel piece." Built exactly to `docs/SYNC_ALGORITHM.md`'s spec: script
+  pointer only advances on a match, transcript pointer always advances, a non-match costs only
+  the transcript side (treated as stutter/repeat/filler/mis-hear). Loose word matching
+  (`matches.ts`): lowercase + strip punctuation, then a 1-edit Levenshtein fallback for short
+  words (≤4 chars) where ASR near-misses are common and proportionally costly. Stall handling
+  (word stuck for `stallThreshold` transcript words, default 18 per the doc's "start around
+  15-20") force-advances the script pointer past whatever's stuck.
+  - **One real gap in the doc, filled in with a documented judgment call, not silently**: the
+    spec doesn't say what happens if the *stuck* word is itself a beat boundary — the "advance i
+    anyway" fallback as written would silently drop that beat's checkpoint entirely. Decided:
+    give it a best-effort checkpoint from the transcript position where the stall resolved
+    (documented inline in `index.ts` — a checkpoint landing a fraction late is invisible in the
+    final video per the doc's own reasoning; a missing checkpoint would break the render step,
+    which expects one per beat). Also added a safety-net pass for the pathological case of a
+    beat that never matches at all (transcript ends early) — same reasoning.
+  - **Unit-tested per the doc's explicit instruction to verify this in isolation before it ever
+    touches a real recording** — "cheap to test in isolation, expensive to debug live." Used
+    Node's built-in test runner (`node --import tsx --test`, zero new dependencies) rather than
+    one combined mega-transcript: a genuinely dropped word can cascade into skipping several
+    subsequent *real* matches while the stall counter runs out, which makes a single
+    stutter+drop+filler-in-one scenario genuinely hard to hand-verify correctly. Split into 5
+    focused cases instead, each hand-traced before running: stutter recovery, a dropped
+    non-boundary word (stall-skip, verified via a small test-only `stallThreshold=3` rather than
+    needing an 18-word-long fake transcript), a dropped word that *is* a boundary (exercises the
+    fallback-checkpoint judgment call above), scattered filler words with no stall needed, and
+    loose case/punctuation matching. All 5 pass (`npm test` in `backend/`).
+  - Caught a real `tsc` error `tsx`'s on-the-fly transpilation didn't catch (types aren't
+    checked, only stripped) — TS can't narrow `array[i].optionalProp` across two separate reads
+    of the same index; fixed by capturing `scriptWords[i]` into a local `const` once per loop
+    iteration. Good reminder that `npm test` passing isn't the same guarantee as `npm run build`
+    passing in this setup.
+  - **Not yet wired to anything real** — no Transcribe integration, no recording UI. Per
+    `docs/TASK_SPLIT.md` that's the correct order (build+prove this in isolation first); those
+    are still open for whenever the recording path gets picked up.
+
+- **Teleprompter recording UI** (`frontend/src/components/TeleprompterRecorder.tsx`) — the
+  headline feature per CLAUDE.md #1/#2, so placed above the Kajal/fallback panels in the UI
+  rather than below, even though it was built after them. Scene-by-scene per CLAUDE.md #2 (not
+  one long take): shows the current scene's full narration as teleprompter text, `getUserMedia`
+  for webcam+mic, `MediaRecorder` to capture, a review step (playback + re-record) before
+  confirming, then upload.
+  - **Real architectural point, not just an implementation detail:** recordings upload directly
+    from the browser to S3 via a presigned PUT URL (new `POST /recording/upload-url`), never
+    through our own API. A multi-minute scene at real webcam quality can easily be tens of MB —
+    comfortably over API Gateway/Lambda's ~6-10MB payload ceiling. Same presigned-URL pattern
+    already used for narration/render, applied to uploads instead of downloads this time.
+  - **Verified with an actual real recording in a real browser, not simulated** — drove the full
+    flow through Claude in Chrome: generated a script, locked it, enabled the camera (confirmed
+    via `navigator.mediaDevices.enumerateDevices()` that this session runs against the user's
+    real physical hardware, not a headless/CI stub — real device labels like "Integrated Webcam"
+    only resolve that way), recorded an actual scene, and hit a real bug: "Confirm & upload"
+    failed with "Failed to fetch." Root cause: the S3 CORS config added to `template.yaml`
+    earlier this session (needed for the browser to PUT cross-origin) had never actually been
+    deployed — `sam deploy`'d it, retried, upload succeeded. Downloaded the result from S3 and
+    verified with `ffprobe`: a genuine 640x480 WebM, ~25s, real audio+video streams — pulled one
+    frame to visually confirm it wasn't corrupted. **Deleted the test recording from S3 and all
+    local copies immediately after verifying** — it was real footage of the user captured
+    incidentally through testing, not something to leave sitting around.
+  - `POST /api/recording/upload-url` and its Lambda are deployed and confirmed working against
+    the real stack (not just local dev).
+  - **Not yet tested: continuing across multiple scenes in one live session** (only scene 1 of 5
+    was actually recorded+uploaded in the live test; the "next scene" advance logic reviewed by
+    reading the code but not re-verified live — low risk, it's just resetting local state and
+    reusing the same already-open camera stream, but flagging the difference between "read and
+    reasoned about" and "actually watched happen" honestly).
+  - Tab-picker (`getDisplayMedia`) for UI-demo scenes not attempted — explicitly a good-to-have
+    per `docs/FEATURES.md`, and `docs/SCOPE_PLAN.md` phrases it as conditional ("if attempting
+    that feature"). Correct to skip given must-haves remain (Transcribe integration, wiring sync
+    to a real recording) — see Sunday's plan.
+
+- **Transcribe integration** (`backend/src/lib/transcribe/`): `StartTranscriptionJob` with
+  `IdentifyMultipleLanguages` + `LanguageOptions: [hi-IN, en-IN]` (code-switched speech, same
+  reasoning as Kajal's voice choice, CLAUDE.md #5), output routed to our own S3 key via
+  `OutputBucketName`/`OutputKey` rather than Transcribe's default location, parsed into
+  `TranscriptWord[]` (`parse.ts` — filters to `type: "pronunciation"` items, converts
+  seconds-as-strings to `start_ms`/`end_ms`). New `POST /transcribe` +
+  `GET /transcribe/:scriptId/:sceneId/status`, wired into `TeleprompterRecorder.tsx` — fires
+  automatically right after a scene's recording uploads.
+  - **Verified live, mechanically**: recorded a real (silent — no actual speech, just room
+    ambience) scene through the browser, watched it auto-trigger transcription, confirmed via
+    the deployed Lambda + real `aws transcribe get-transcription-job` that the job completed and
+    the frontend correctly showed "0 word(s) recognized" without crashing on empty output.
+  - **Verified against real speech content — and this is the important part**: generated known
+    Hinglish audio via Polly ("Toh yahan pe dekho, humne ek async function banaya hai jo API se
+    data fetch karta hai.") and ran it through our actual `startTranscription`/
+    `getTranscriptionStatus` code (not just raw CLI). Word-level timestamps were accurate and
+    the transcription itself was excellent — but it came back entirely in **Devanagari script**
+    ("तो यहाँ पे देखो हमने एक एसिंक फंक्शन..."), not the Latin-script Hinglish locked scripts are
+    written in. This is a real discovery, not an assumption: the two-pointer sync algorithm's
+    text matching cannot work across scripts as-is.
+  - **Fix implemented (user decided: add transliteration, not chase a Transcribe output-format
+    setting or accept the limitation unfixed):** `backend/src/lib/sync/transliterate.ts` using
+    `@indic-transliteration/sanscript` (ITRANS scheme, `syncope: true` for Hindi-style schwa
+    deletion, tuned `preferred_alternates` for casual Hinglish spelling conventions).
+    `transliterateTranscript()` applied once per scene before `syncScene()` ever sees the words,
+    keeping the two-pointer algorithm itself script-agnostic. `npm audit` flagged a high-severity
+    transitive dep (`toml`, via `@indic-transliteration/common_maps`) — verified before accepting
+    it: `toml` parses that package's *bundled* scheme-definition files at the package's own
+    *build/publish* time only; grepped the actual runtime file we `import` (`sanscript.js`,
+    10k lines) and confirmed zero references to `toml` anywhere in it — not reachable through
+    anything our code calls, so the vulnerability isn't actually exploitable via our usage.
+  - **Also fixed while testing this**: `wordsMatch()`'s fuzzy tolerance was a fixed "1 edit,
+    words ≤4 chars only" — too narrow for real transliteration noise, where longer words like
+    "yahaan" (transliterated) vs. "yahan" (script) or "karataa" vs. "karta" commonly differ by
+    1-2 edits. Replaced with a proportional threshold (`max(1, floor(length * 0.34))`) — fixes
+    all the pure-Hindi transliteration mismatches found, verified not to introduce false
+    positives against the loanword cases below (their edit distances are far larger). All
+    existing sync tests still pass unchanged.
+  - **Real, deeper problem found that transliteration + better matching does NOT fix:**
+    consecutive English CS/programming loanwords ("async function") get phonetically respelled
+    in Devanagari as a unit ("एसिंक फंक्शन" → "esimka phamkshana") — nowhere close to the
+    original English spelling even after transliteration (edit distance far exceeds any
+    reasonable fuzzy threshold, correctly so — a looser threshold here would risk false-matching
+    unrelated words instead). Added `backend/src/lib/sync/real-data.test.ts` using the exact
+    real Transcribe output captured this session as a fixture, proving the failure mode
+    precisely: once the script pointer sticks on "async", the transcript pointer advances
+    looking for it and **consumes "function"'s real transcript position along the way** — by
+    the time the script pointer reaches "function", its actual timestamp is already gone. In
+    the test scene, this made a beat's checkpoint land at the very end of the scene (a ~1.9s
+    miss) instead of its real position — not "a fraction of a second late" (which
+    `docs/SYNC_ALGORITHM.md` accepts as invisible) but a visibly broken cut. This is a
+    structural property of the two-pointer design when it hits *consecutive* unmatchable words,
+    not something a stall-threshold value alone resolves (confirmed: lowering the threshold to 4
+    still didn't recover the correct timestamp, for exactly this reason).
+  - **Tried Transcribe Custom Vocabulary next (user's choice, over testing with real human
+    speech or accepting the limitation) — result: no effect, root cause identified, not fixed by
+    this approach.** Created `vaani-tech-terms` (en-IN, common CS/programming terms:
+    function, async, API, component, React, TypeScript, etc.), wired via `LanguageIdSettings`
+    on `StartTranscriptionJob` (confirmed via `aws transcribe start-transcription-job help` that
+    this combination with `IdentifyMultipleLanguages` is actually supported before writing any
+    code). Re-ran the *identical* known-audio test with the vocabulary active: **output was
+    byte-for-byte identical** to the run without it — same words, same millisecond timestamps.
+    Working theory: Transcribe's multi-language identification appears to classify a whole
+    single-sentence utterance as one dominant language (here, hi-IN, since Hindi function words
+    outnumber the English loanwords) rather than switching per-word, so an en-IN-attached
+    vocabulary never actually gets consulted for any word in a segment classified as Hindi. The
+    vocabulary and the `TRANSCRIBE_VOCABULARY_NAME` env-var wiring are left in place (harmless,
+    opt-in, unset by default) in case it proves useful for different content shapes, but this
+    specific fix did not work and stopped here rather than continuing to guess at variations.
+  - **Not yet tried: real human speech instead of Polly TTS.** This whole loanword-cascade
+    problem was found using Polly-synthesized audio. A real bilingual speaker's natural
+    code-switch pronunciation of "async"/"API"/"function" may transcribe differently (better or
+    worse — genuinely unknown) than Kajal's TTS rendering of the same words. This is the
+    cheapest remaining way to learn more, and costs nothing extra beyond the recording Sunday's
+    plan already requires — worth checking specifically when the first real scene is recorded
+    and transcribed, before deciding whether this needs more engineering effort or should just
+    be accepted as a known limitation given the deadline.
+  - **Decision needed before "wire sync to a real recording" (Sunday morning):** current state
+    is transliteration + improved matching (solid wins, keep), custom vocabulary (built, wired,
+    unproven for this pattern), and an open question on how much the loanword-cascade issue
+    actually matters once real human speech is in the loop.
+
+## Sunday, Sept 20 (early) — real-human-speech test, answered
+
+- **Tested with the user's actual voice, not Polly** — locked a scene with the identical known
+  sentence ("Toh yahan pe dekho, humne ek async function banaya hai jo API se data fetch karta
+  hai."), recorded it live through the real teleprompter UI (camera/mic, MediaRecorder, direct S3
+  upload, auto-triggered Transcribe), pulled the real completed job result via the deployed API.
+  **Result: the cascade problem is not better with real speech — if anything it's worse.** Real
+  Transcribe output: "तो यहाँ पर देखो हमने एक ट्रेसिंग फंक्शन बनाया है जो एपीआई से डाटा सर्च करता
+  है" — "async" came back as "ट्रेसिंग" ("tracing", transliterates to "Tresimga") and "fetch" came
+  back as "सर्च" ("search"). These aren't phonetic mangles of the intended word like Polly's
+  "एसिंक"/"esimka" was — Transcribe heard genuinely different real words, not a garbled attempt at
+  the right one. Ran the real transliterated output through the actual `syncScene()` (not
+  hand-simulated): the script pointer sticks on "async", the transcript pointer races past both
+  "function"'s and "fetch"'s real positions while waiting it out, and the transcript ends before
+  the 18-word stall threshold is ever reached — beat-2's checkpoint falls all the way to the
+  end-of-scene safety net (11920ms) instead of its real position (10279ms, where "jo" actually
+  starts), a ~1.64s miss, not "a fraction late."
+  - **Conclusion: this needs the safety-net fallback fixed, not a chase for a better matching
+    threshold or vocabulary trick — those are already proven not to help this failure mode.**
+    Cheapest real fix given the deadline: when multiple beats end up uncovered at the end of a
+    scene, distribute their fallback checkpoints proportionally across the remaining transcript
+    time (weighted by each beat's word count) instead of collapsing all of them onto the exact
+    same final timestamp — turns "several beats flash simultaneously at the very end" into "beats
+    land at reasonable, spread-out times," which is a real, shippable improvement without touching
+    the core two-pointer logic or the deadline-risky idea of a bigger rework.
+  - Test artifacts (recording, transcript, locked script) deleted from S3 immediately after
+    extracting the transcript JSON needed for this analysis — same privacy handling as the
+    Saturday recording-UI test.
+  - Also noted while driving this test: the Claude-in-Chrome browser automation tooling used for
+    verification hit a genuine, repeated `Page.captureScreenshot` CDP failure this session (not
+    the page itself — `get_page_text`/`read_network_requests`/`javascript_tool` all worked fine
+    throughout). Worked around by avoiding screenshots entirely for this test and driving via
+    `find`/`read_page`/direct DOM `javascript_tool` calls instead. Separately, `get_page_text`
+    against the script-review page turns out very token-expensive: `VisualPreview.tsx` renders
+    each `code_highlight` beat's **entire source file** into the DOM (confirmed in PROGRESS.md's
+    Saturday notes as an intentional scroll-into-view design), so a full-page text extraction
+    pulls every beat's whole file, repeated per beat — fine for the app itself, worth knowing if
+    debugging this page via any text-dump tool again.
+
+## Sunday, Sept 20 — STT provider switch (AWS Transcribe → Whisper/Groq), cascade problem solved
+
+- **User's call, and it worked**: given the real-speech test above proved the cascade problem was
+  fundamental to AWS Transcribe (not a Polly artifact), the user asked to switch the sync
+  pipeline's STT to Whisper — via the Groq API for now (`whisper-large-v3`), with a note that
+  production should eventually self-host Whisper on AWS instead. This is a genuine architecture
+  change, not in the original docs, made explicitly by the user with reasoning (Whisper's
+  code-switching handling is well known to be stronger than AWS Transcribe's), not something this
+  session decided on its own.
+  - `backend/src/lib/transcribe/` restructured to match the existing `llm/` provider-switch
+    pattern: old AWS implementation moved to `aws.ts` unchanged, new `groq.ts` added, `index.ts`
+    is now a thin `STT_PROVIDER` switch (defaults to `"groq"`, `"aws"` kept as a fallback/
+    comparison path). Groq's transcription API is a single synchronous call (no job polling like
+    AWS) — `groq.ts` just does the whole call inline and writes the completed result straight to
+    the same S3 key AWS Transcribe would have used, so `getTranscriptionStatus()` and the
+    frontend's existing poll loop needed zero changes. `GroqApiKey` added to `template.yaml`
+    (`NoEcho`, same pattern as `GeminiApiKey`) and wired to `TranscribeFunction`'s environment;
+    `TranscribeStatusFunction` gets `STT_PROVIDER` only (its Groq path just reads S3, no API key
+    needed). `.env.example` updated. `groq-sdk` added as a backend dependency — the only new
+    `npm audit` finding it could have introduced was checked and is unrelated (same pre-existing
+    `toml`-via-`sanscript` false positive already documented above).
+  - **Verified against real human speech, not assumed**: restarted the local backend so the new
+    env vars took effect, then re-ran the same kind of test as the AWS/real-speech test above —
+    this time the Claude-in-Chrome extension itself dropped mid-session (`tabs_context_mcp`
+    stopped responding, then "Selected Chrome extension disconnected" — a step beyond the earlier
+    per-tab screenshot flakiness), so the user drove the actual recording through their own
+    browser instead of this session automating it. Pulled the resulting job's real output
+    straight from S3/the backend API once uploaded.
+  - **Result: decisively better.** Real Whisper output rendered English CS/programming loanwords
+    as literal English — `"function"`, `"API"`, `"data"`, `"fetch"` all came back exactly as
+    spelled, not phonetically respelled into unrelated Devanagari the way AWS Transcribe did with
+    "async" → "ट्रेसिंग"/"tracing". This is the actual mechanism difference: Whisper handles
+    code-switching token-by-token; AWS Transcribe's `IdentifyMultipleLanguages` classifies whole
+    segments into one language, which is what caused the original cascade failure no amount of
+    vocabulary/threshold tuning could fix (see Saturday's notes).
+  - **Found and fixed a real bug this surfaced, invisible until now**: `transliterateTranscript()`
+    was calling `Sanscript.t()` on every word regardless of script, on the documented (but never
+    actually verified) assumption that it safely no-ops on already-Latin text. False — confirmed
+    directly against the library: `"API"` came back as `"aaPii"`, because ITRANS treats capital
+    `A`/`I` as long-vowel codes and this project's own `preferred_alternates` table remaps them.
+    This bug existed the whole time transliteration has been in the pipeline but was silent under
+    AWS Transcribe, which never produced clean Latin acronyms in the first place — Whisper's much
+    better output is what exposed our own post-processing corrupting it. Fixed in
+    `backend/src/lib/sync/transliterate.ts`: `transliterateTranscript()` now only runs a word
+    through Sanscript if it actually contains a Devanagari code point (`/[ऀ-ॿ]/`);
+    anything already Latin passes through completely untouched.
+  - **Found and fixed a second real gap**: even after that fix, the sync algorithm still missed
+    beat-2's checkpoint on the real test data. Root cause, confirmed directly against the
+    transliteration library (not assumed): `syncope: true` does not reliably strip the trailing
+    schwa on short words — `"हम"` ("hum", 2 letters) transliterates to `"hama"`, not `"ham"`,
+    landing 2 edits from the script's spelling on a 4-character word. The existing proportional
+    fuzzy-match threshold (`max(1, floor(length * 0.34))`) only allowed 1 edit for words this
+    short. Raised `MIN_EDIT_DISTANCE_ALLOWANCE` from 1 to 2 in `backend/src/lib/sync/matches.ts`
+    — full existing test suite (6 tests, including the AWS/Polly real-data fixture) still passes
+    unchanged with the wider floor, so this didn't introduce the false-positive risk the original
+    tight threshold was deliberately guarding against.
+  - **With both fixes, the real Whisper transcript syncs exactly** — added
+    `backend/src/lib/sync/whisper-real-data.test.ts` as a permanent regression test (same pattern
+    as the AWS `real-data.test.ts`) using the real captured Whisper output: beat-2's checkpoint
+    lands at 20660ms, precisely `"jo"`'s real start time — not a fallback, not "close enough," an
+    exact match. `npm test` (7/7) and `npm run build` both clean after these changes.
+  - Test recording/transcript/script deleted from S3 immediately after extracting what was needed
+    for the regression test, same privacy handling as every other real-footage test this session.
+  - **Not yet done**: this is proven at the unit/algorithm level against one real recording, not
+    yet re-verified end-to-end through the actual UI with the fixes in place (the extension
+    disconnect cut that short). Worth a quick live re-check if time allows before submission, but
+    the algorithmic proof (real captured data → real code path → exact checkpoint) is strong
+    evidence on its own given the deadline.
+
+## Sunday, Sept 20 — real-recording render path (didn't exist at all until now)
+
+- **Real gap found: the render stage only ever supported the Polly fallback.** There was no code
+  anywhere that turned a real recorded scene + its sync checkpoints into a final video — the
+  actual headline feature (CLAUDE.md #1) had no way to produce a submittable video at all. This
+  matches Sunday's still-open tasks ("sync wired to a real recording," "render stage... full
+  pipeline"). Confirmed with the user before building it (a real architecture addition, not a
+  tweak) — agreed scope: must-have baseline only, full-screen visual per beat cut at checkpoints
+  with the real recorded audio, no picture-in-picture face overlay (that's explicitly cosmetic per
+  `docs/FEATURES.md`).
+  - **New pieces**: `shared` gets `SyncResultSchema`/`SyncRequestSchema` + `syncResultKey()`.
+    Backend gets `src/lib/sync/computeSync.ts` (loads the locked script, requires every scene's
+    transcription already `"completed"`, runs `transliterateTranscript` + `syncScene` per scene,
+    persists the result to S3 — throws a clear error, doesn't persist anything, if any scene isn't
+    ready) behind a new `POST /sync` handler/route/Lambda (`SyncFunction` in `template.yaml`,
+    mirrors the existing `TranscribeStatusFunction`'s permissions). Render gets
+    `render/src/realRender.ts` (`renderSceneFromRecording`) — downloads the scene's real recorded
+    webm, gets its true duration via a new `ffprobe`-based `getMediaDurationMs()` in `ffmpeg.ts`,
+    computes each beat's on-screen duration as the gap between consecutive checkpoints (last beat
+    runs to the recording's real end), screenshots each beat's visual exactly like the fallback
+    path already does, and muxes the image sequence with the *real recording's audio track*
+    (`-map 0:v:0 -map 1:a:0`, not a separate synthesized file). `render/src/index.ts`'s `main()`
+    now checks for a completed `SyncResult` in S3 first and uses the real path if present, falling
+    back to the original Polly path (renamed `renderSceneFromNarration` for clarity) exactly as
+    before if not — real-recording is primary, Polly is the safety net, per CLAUDE.md #1, decided
+    by what's actually in S3 rather than a flag anyone has to remember to set.
+  - Frontend: `TeleprompterRecorder.tsx`'s old "not built yet" placeholder message (literally
+    hardcoded) replaced with a real "Sync recordings" button once every scene is uploaded, calling
+    the new `api.syncRecordings()`; the result is lifted to `App.tsx` state. `RenderPanel.tsx`
+    now unlocks from *either* a narration result or a sync result (previously gated on narration
+    only, which meant there was no UI path to render a real recording even after this backend/
+    render work existed) and labels the button "Render video" vs. "Render fallback video"
+    depending on which path is actually available.
+  - **A cheap, defense-in-depth robustness fix done alongside this**: the sync algorithm's
+    safety-net fallback (for beats the two-pointer walk never reaches before the transcript runs
+    out) used to collapse *every* uncovered beat onto the exact same final timestamp. Changed to
+    spread them proportionally by word count across the time between the last real checkpoint and
+    the transcript's end (`backend/src/lib/sync/index.ts`) — with exactly one uncovered beat (the
+    common case, and the AWS/Whisper real-data test fixtures) this is provably identical to the
+    old behavior; with multiple, it turns "several beats flash simultaneously at the very end"
+    into "beats land at reasonable, spread-out times." New regression test added
+    (`index.test.ts`, 8th test) with hand-verified round numbers. Full suite still 8/8.
+  - **Verified for real, not just by code review**: no real multi-scene recording was re-done live
+    for this (would have cost significant time for marginal extra proof beyond what's below) —
+    instead, built a synthetic-but-real end-to-end test: generated an actual 6s test video with
+    ffmpeg (`testsrc` + `sine` tone standing in for a webcam recording), a 3-beat locked script,
+    and a hand-built `SyncResult` with checkpoints at 0/2000/4000ms, uploaded all three to the real
+    S3 bucket, and ran `render/src/index.ts`'s actual `main()` directly (same code the Fargate
+    container runs, just invoked locally with `tsx` instead of via Docker/ECS — Playwright
+    Chromium and ffmpeg/ffprobe were already available locally from Saturday's validation work).
+    **This caught a real, previously-invisible bug**: the render succeeded and reported `"done"`
+    with a `final.mp4` whose container metadata claimed the correct 6.02s duration — but
+    re-decoding the actual output (`ffmpeg -vf fps=1 ...` frame-by-frame, then confirmed harder
+    with `-vsync cfr` resampling) showed the video content actually stopped being decodable around
+    3-4 seconds, well before the audio ended. Root cause: `-vsync vfr` on a concat of sparse still
+    images (one frame every ~2s, zero motion) produces a stream that real decoders don't reliably
+    hold to its declared end, even though the container-level duration (matched to the audio via
+    `-shortest`) looks correct at a glance — a bug that would have been very easy to ship
+    undetected, since `ffprobe`'s format-level duration check (the exact check Saturday's Polly
+    path verification relied on) doesn't catch it, and the earlier Polly-path manual playback
+    check only confirmed sound worked, not that every visual actually held through to the end.
+    **This exact same bug was already present in the original Polly fallback path** (identical
+    `-vsync vfr` usage) — fixed in both places, not just the new code: switched to
+    `-vsync cfr -r 5` (a new `OUTPUT_FPS` constant in `ffmpeg.ts`), which explicitly duplicates
+    each still image into real frames spanning its full duration. Re-ran the same synthetic
+    end-to-end test after the fix and confirmed by re-decoding: all 6 seconds present, correct
+    beat colors at exactly the right second (0-1s beat-1, 2-3s beat-2, 4-5s beat-3). 5fps is
+    trivially cheap to encode for static screenshots (libx264 skip-codes near-identical duplicate
+    frames) and plenty of granularity given the new 0.8s minimum-hold floor below.
+  - **A second brag-inspired polish item, scoped narrowly to the new real-recording path only**:
+    added a minimum on-screen hold per beat (`MIN_BEAT_HOLD_SECONDS = 0.8` in `realRender.ts`,
+    per /brag's pacing rule — see the design-inspiration research earlier this session) so a
+    checkpoint gap that's pathologically small (e.g. from a stall-skip firing close together)
+    doesn't flash a visual for an imperceptible instant; `-shortest` still caps the whole scene to
+    the real audio length, so inflating one beat only ever eats into later beats' slack, never
+    desyncs from the real voice. Deliberately *not* applied to the already-proven Polly fallback
+    path (its durations come from real synthesized audio, essentially never near-zero — no reason
+    to add risk to a working path for near-zero benefit there).
+  - Test S3 artifacts (recording, sync result, locked script, render output) and local temp files
+    deleted immediately after verifying — synthetic data this time (no real user footage involved,
+    since this test used a generated `testsrc`/`sine` clip, not a real webcam recording).
+  - `npm run build` clean across `shared`/`backend`/`frontend`/`render`; `npm test` in `backend`
+    still 8/8 after all of the above.
+  - **/brag research → shared slide design system.** Read `latent-spaces/brag`'s actual
+    `skills/brag/references/step-2-plan.md` / `step-3-compose.md` (not just its README). Its
+    rendering engine (Hyperframes, external + proprietary) isn't adoptable, but its planning rules
+    are portable. Applied: (1) "Visual Identity" — one exact bg/text/accent palette + fonts applied
+    consistently, instead of per-scene improvisation. Vaani's slide/graph beats previously got
+    zero design guidance (each beat's HTML independently LLM-styled, some white, some dark) while
+    code_highlight beats were fixed one-dark-pro. Now `render/src/visuals.ts` has a shared
+    `DESIGN_SYSTEM_STYLE` (one-dark-pro-matched tokens, type scale, `.slide/.card/.accent/.mono`
+    classes) wrapping every slide/graph beat in a `.slide` container; the script-gen prompt
+    (`scriptGen.ts`) now tells the model to write inner content only and use those classes, plus
+    /brag's "real specifics from this project, never generic filler" rule. (2) The frontend
+    review preview (`VisualPreview.tsx`) previously showed LLM HTML on plain white — it now uses
+    the same tokens (manually duplicated CSS; frontend/render are separate workspaces) so review
+    matches the final render. Verified by rendering a sample slide through the real
+    `beatVisualHtml` + Playwright and looking at the PNG. (3) Deliberately did NOT copy /brag's
+    word-count pacing rule (0.3s/word): it would inflate beats for fast speakers and drift later
+    beats off the real voice — documented in `realRender.ts` so it isn't "fixed" later.
+    System font stack, no web font, so a headless Fargate render can't degrade on font loading.
+  - **UI redesign (impeccable + frontend-design skills, shadcn-heavy).** User chose: dark,
+    editor-like, calm; a focused stepper, one stage open at a time; "make it like a real product."
+    Replaced the single long page with an app shell: sticky header, left rail `Stepper` (Repo,
+    Script, Record, Sync, Video; horizontal on mobile; locked steps explain themselves in a
+    tooltip), and one stage at a time. Theme is now one cool blue-slate token family in
+    `index.css` matching the one-dark look of the rendered videos (blue = actions, amber =
+    highlight), Geist + Geist Mono, themed selection/caret/scrollbar/focus, reduced-motion
+    respected. New shadcn components added: accordion, tabs, progress, tooltip, scroll-area,
+    sonner, spinner, kbd (all the earlier shadcn CLI quirks recurred: files land in `./@/` and
+    import `cn` from `"cn"`; moved them to `src/` and pointed them at `@/lib/utils`, which
+    re-exports it). Stage rewrites: `RepoForm` (phase-aware progress while ingesting/drafting),
+    `ScriptReview` (scene accordion, narration beside its visual preview, sticky lock bar),
+    `TeleprompterRecorder` (big prompter text, camera frame, progress; sync moved out of it),
+    new `SyncPanel` (per-scene transcription status polled every 3s, then sync; Polly fallback
+    shown as a clearly secondary card), `RenderPanel` (progress, player, download). The recorder
+    stays mounted while other steps are open so leaving mid-session doesn't drop the camera stream
+    or the uploaded-scenes list. Verified with Playwright screenshots (mocked API, fake camera) at
+    desktop and mobile, one batched round plus one fix round, then the impeccable detector once
+    (clean). **Real bugs caught by that round**: the empty live `<video>` sat over the "Enable
+    camera" button and swallowed clicks (would have blocked recording entirely), and on mobile the
+    stepper stretched the grid column so the page was ~700px wide in a 390px viewport. Both fixed.
+    `PRODUCT.md` added for impeccable. Not done: no DESIGN.md (impeccable `document`), and the
+    whole flow hasn't been driven with the real backend/webcam after the redesign (mocked only).
+  - **Not yet done**: a live, real-microphone/webcam run through this exact new path (real
+    recording → real Whisper transcript → real sync → real render) hasn't happened yet — Saturday
+    night's Whisper test proved the STT+sync half against real speech, and today's synthetic test
+    proved the render half against real code, but the two haven't been chained together end-to-end
+    with an actual human recording. Worth doing once if time allows before submission, but each
+    half is now independently proven against real inputs through the real code paths, which is
+    strong evidence on its own given the deadline.
+
+## Sunday, Sept 20
+
+- [ ] Sync algorithm wired to a real recorded scene
+- [ ] Render stage working, full pipeline run start to finish
+- [ ] Good-to-haves (only if must-haves are done, cut off ~2–3 PM)
+- [ ] Demo video recorded (3 min max)
+- [ ] Writeup written
+- [ ] Repo public, README current
+- [ ] Submitted before 8:00 PM IST
+
+Notes:
+-
