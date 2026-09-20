@@ -10,7 +10,6 @@ import { GridFrame, Section, Crosshair } from "@/components/landing/frame";
 import { HeroDemo } from "@/components/landing/HeroDemo";
 import { PipelineTabs } from "@/components/landing/PipelineTabs";
 import { SyncExplainer } from "@/components/landing/SyncExplainer";
-import { LanguagesSection } from "@/components/landing/LanguagesSection";
 import { StackMarquee } from "@/components/landing/StackMarquee";
 import { FaqSection } from "@/components/landing/FaqSection";
 import { FooterWord, BackToTop } from "@/components/landing/FooterWord";
@@ -18,7 +17,6 @@ import { FooterWord, BackToTop } from "@/components/landing/FooterWord";
 const NAV_LINKS = [
   { href: "#how", label: "How it works" },
   { href: "#sync", label: "Sync" },
-  { href: "#languages", label: "Languages" },
   { href: "#stack", label: "Stack" },
   { href: "#faq", label: "FAQ" },
 ];
@@ -38,7 +36,7 @@ function Nav() {
   const [activeSection, setActiveSection] = useState("");
 
   useEffect(() => {
-    const sectionIds = ["how", "sync", "languages", "stack", "faq"];
+    const sectionIds = ["how", "sync", "stack", "faq"];
     const observer = new IntersectionObserver(
       (entries) => {
         entries.forEach((entry) => {
@@ -249,7 +247,8 @@ export default function Landing() {
 
         {/* 03 / Sync */}
         <Section id="sync" label="03 / Sync">
-          <div className="grid gap-10 px-4 py-12 sm:px-6 sm:py-16 lg:grid-cols-[minmax(0,1fr)_minmax(0,34rem)] lg:gap-14">
+          <div className="flex flex-col gap-8 px-4 py-12 sm:px-6 sm:py-14">
+            {/* The words run across the top, and the animation below uses the full width. */}
             <div className="flex flex-col gap-4 font-mono">
               <div className="inline-flex w-max items-center gap-1.5 rounded border border-line-strong bg-secondary px-2.5 py-1 text-[11px] text-muted-foreground">
                 <span className="size-1.5 rounded-full bg-primary" />
@@ -259,33 +258,24 @@ export default function Landing() {
               <h2 className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
                 The cut lands on the word you said
               </h2>
-              <p className="text-sm leading-relaxed text-muted-foreground">
-                Speech-to-text is messy. Your script isn't. Vaani walks both side by side and only moves the script
-                forward when a word matches, so a stutter or a filler can't drag a cut off target.
-              </p>
-              <p className="text-sm leading-relaxed text-muted-foreground">
-                Hindi words come back spelled phonetically, so matching is fuzzy on purpose. And the engine matters: on
-                one test sentence AWS Transcribe heard "async function" as "tracing function". Whisper large-v3 kept the
-                English terms intact, which is why Vaani uses it.
-              </p>
+              <div className="grid gap-4 md:grid-cols-2 md:gap-10">
+                <p className="text-sm leading-relaxed text-muted-foreground">
+                  Speech-to-text is messy. Your script isn't. Vaani walks both side by side and only moves the script
+                  forward when a word matches, so a stutter or a filler can't drag a cut off target.
+                </p>
+                <p className="text-sm leading-relaxed text-muted-foreground">
+                  Hindi words come back spelled phonetically, so matching is fuzzy on purpose. And the engine matters:
+                  on one test sentence AWS Transcribe heard "async function" as "tracing function". Whisper large-v3
+                  kept the English terms intact, which is why Vaani uses it.
+                </p>
+              </div>
             </div>
             <SyncExplainer />
           </div>
         </Section>
 
-        {/* 04 / Languages */}
-        <Section id="languages" label="04 / Languages">
-          <div className="flex flex-col gap-8 px-4 py-12 sm:px-6 sm:py-16">
-            <SectionHeading title="Written the way you actually talk">
-              Scripts come out in Hinglish, not stiff translated Hindi. English terms stay as they are, so you never
-              stumble over a word you'd never say in Hindi.
-            </SectionHeading>
-            <LanguagesSection />
-          </div>
-        </Section>
-
-        {/* 05 / Stack */}
-        <Section id="stack" label="05 / Stack">
+        {/* 04 / Stack */}
+        <Section id="stack" label="04 / Stack">
           <div className="flex flex-col gap-8 px-4 py-12 sm:px-6 sm:py-16">
             <SectionHeading title="What's under the hood">
               Small parts, each doing one job. Deployed on AWS.
@@ -294,24 +284,10 @@ export default function Landing() {
           </div>
         </Section>
 
-        {/* 06 / Questions */}
-        <Section id="faq" label="06 / Questions">
+        {/* 05 / Questions */}
+        <Section id="faq" label="05 / Questions">
           <div className="px-4 py-12 sm:px-6 sm:py-16">
             <FaqSection />
-          </div>
-        </Section>
-
-        {/* 07 / CTA Section */}
-        <Section label="07 / CTA">
-          <div className="flex flex-col items-start gap-6 px-4 py-16 sm:px-6 sm:py-20 font-mono">
-            <h2 className="max-w-2xl text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
-              Your next code walkthrough is one read-through away.
-            </h2>
-            <Button render={<Link to="/app/studio" />} variant="ink" size="lg" className="h-11 px-6 text-base">
-              Make a video
-              <ArrowRight data-icon="inline-end" className="size-4" />
-            </Button>
-            <p className="text-xs text-muted-foreground">Works with any public repo. Nothing to install.</p>
           </div>
         </Section>
       </main>
@@ -320,7 +296,6 @@ export default function Landing() {
       <footer className="w-full border-t border-line-strong bg-background font-mono">
         <div className="mx-auto flex max-w-[1200px] flex-col items-start justify-between gap-4 border-x border-line-strong px-4 py-8 text-xs text-muted-foreground sm:flex-row sm:items-center sm:px-6">
           <Logo />
-          <p className="text-center">Built for the First Commit hackathon, WeMakeDevs &times; AWS.</p>
           <nav className="flex gap-4" aria-label="Footer">
             <Link to="/app" className="hover:text-foreground">
               Dashboard
@@ -336,13 +311,12 @@ export default function Landing() {
           </nav>
         </div>
 
-        <div className="mx-auto flex max-w-[1200px] border-x border-t border-line-strong px-4 py-3 text-[11px] text-muted-foreground sm:px-6">
-          &copy; 2026 Vaani &middot; Team cosmosapiens
-        </div>
-
-        {/* Bitmap Footer Word animation */}
+        {/* Bitmap word, with the copyright line running full width underneath */}
         <div className="mx-auto max-w-[1200px] border-x border-line-strong">
           <FooterWord />
+        </div>
+        <div className="w-full border-t border-line-strong px-4 py-3 text-[11px] text-muted-foreground sm:px-6">
+          &copy; 2026 Vaani &middot; Team cosmosapiens &middot; Built for the First Commit hackathon, WeMakeDevs &times; AWS
         </div>
       </footer>
 

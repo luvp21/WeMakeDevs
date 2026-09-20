@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { motion, useInView, useReducedMotion } from "motion/react";
 import {
   Check, Circle, Clapperboard, GitBranch, Mic, ScrollText, AudioLines, type LucideIcon
 } from "lucide-react";
@@ -162,10 +162,13 @@ export function PipelineTabs() {
   const [progress, setProgress] = useState(0);
   const [isHovered, setIsHovered] = useState(false);
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const inView = useInView(rootRef, { amount: 0.2 });
 
-  // Auto-advance progress timer
+  // Auto-advance progress timer. Only while the section is on screen: it used to keep
+  // switching steps while you were looking at other parts of the page.
   useEffect(() => {
-    if (reduce || isHovered) return;
+    if (reduce || isHovered || !inView) return;
 
     const interval = 50; // update progress every 50ms
     const stepIncrement = (interval / AUTO_ADVANCE_MS) * 100;
@@ -180,7 +183,7 @@ export function PipelineTabs() {
     }, interval);
 
     return () => clearInterval(timer);
-  }, [reduce, isHovered]);
+  }, [reduce, isHovered, inView]);
 
   // When progress reaches 100%, step forward to the next index sequentially
   useEffect(() => {
@@ -206,10 +209,10 @@ export function PipelineTabs() {
   };
 
   const currentStep = STEPS[activeIdx];
-  const Artifact = currentStep.Artifact;
 
   return (
     <div
+      ref={rootRef}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => {
         setIsHovered(false);
@@ -255,29 +258,45 @@ export function PipelineTabs() {
         </TabsList>
       </Tabs>
 
-      {/* Main step content panel */}
+      {/* Main step content panel. Every step sits in the SAME grid cell and only the current one is
+          visible, so the panel is always as tall as the tallest step. Showing just one step at a
+          time made the height change on every switch, and the whole page below it jumped. */}
       <div className="grid gap-6 p-6 sm:p-8 md:grid-cols-[2fr_3fr] md:items-center">
-        <div className="flex flex-col gap-3 font-mono">
-          <h3 className="text-xl font-semibold tracking-tight text-foreground">{currentStep.title}</h3>
-          <p className="text-sm text-muted-foreground leading-relaxed">{currentStep.body}</p>
-          <span className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
-            <Circle className="size-2 fill-primary text-primary" />
-            Step {activeIdx + 1} of {STEPS.length}
-          </span>
+        <div className="grid font-mono">
+          {STEPS.map((step, i) => (
+            <div
+              key={step.id}
+              aria-hidden={i !== activeIdx}
+              className={cn("col-start-1 row-start-1 flex flex-col gap-3", i !== activeIdx && "invisible")}
+            >
+              <h3 className="text-xl font-semibold tracking-tight text-foreground">{step.title}</h3>
+              <p className="text-sm text-muted-foreground leading-relaxed">{step.body}</p>
+              <span className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+                <Circle className="size-2 fill-primary text-primary" />
+                Step {i + 1} of {STEPS.length}
+              </span>
+            </div>
+          ))}
         </div>
 
-        <div className="rounded border border-line-strong bg-background p-5">
-          <AnimatePresence mode="wait" initial={false}>
-            <motion.div
-              key={currentStep.id}
-              initial={reduce ? false : { opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={reduce ? undefined : { opacity: 0 }}
-              transition={{ duration: 0.25, ease: EASE }}
-            >
-              <Artifact />
-            </motion.div>
-          </AnimatePresence>
+        <div className="grid rounded border border-line-strong bg-background p-5">
+          {STEPS.map((step, i) => {
+            const Panel = step.Artifact;
+            const active = i === activeIdx;
+            return (
+              <motion.div
+                key={step.id}
+                aria-hidden={!active}
+                inert={!active}
+                className="col-start-1 row-start-1"
+                initial={false}
+                animate={{ opacity: active ? 1 : 0, y: active || reduce ? 0 : 8 }}
+                transition={{ duration: reduce ? 0 : 0.25, ease: EASE }}
+              >
+                <Panel />
+              </motion.div>
+            );
+          })}
         </div>
       </div>
     </div>

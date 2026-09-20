@@ -90,8 +90,8 @@ export function FaqSection() {
 
   return (
     <div className="grid gap-10 font-mono lg:grid-cols-[18rem_minmax(0,1fr)] lg:gap-14">
-      {/* Left Sticky Column */}
-      <div className="flex flex-col gap-5 lg:sticky lg:top-24 lg:self-start">
+      {/* Left column */}
+      <div className="flex flex-col gap-5 lg:self-start">
         <div className="flex flex-col gap-2">
           <h2 className="text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">Questions</h2>
           <p className="text-sm text-muted-foreground leading-relaxed">

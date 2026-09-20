@@ -12,6 +12,9 @@ export const CUTS = [
   { index: 9, time: "20.66s", label: "Beat 3 starts at “jo”" },
 ];
 
+// React does not know the &approx; entity, so it showed up as literal text.
+const APPROX = "\u2248";
+
 export const STEP_MS = 550;
 export const HOLD_TICKS = 4;
 export const TOTAL_DURATION = 5; // seconds
@@ -67,7 +70,7 @@ export function SyncExplainer() {
       ref={ref}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
-      className="flex flex-col gap-5 rounded-md border border-line-strong bg-card p-5 font-mono shadow-xs sm:p-6 transition-all"
+      className="flex w-full flex-col gap-5 rounded-md border border-line-strong bg-card p-5 font-mono shadow-xs sm:p-6"
     >
       <div className="flex flex-col gap-5">
         {/* Script Row */}
@@ -85,8 +88,8 @@ export function SyncExplainer() {
                   onClick={() => setStep(i)}
                   className={cn(
                     "relative rounded-md border px-2.5 py-1 text-xs sm:text-sm transition-all duration-150 text-left cursor-pointer",
-                    matched && "border-success/40 bg-success-soft text-foreground font-normal",
-                    current && "border-primary bg-primary-soft text-primary font-semibold shadow-xs ring-1 ring-primary/30",
+                    matched && "border-success/40 bg-success-soft text-foreground",
+                    current && "border-primary bg-primary-soft text-primary shadow-xs ring-1 ring-primary/30",
                     !matched && !current && "border-line-strong text-muted-foreground/70 hover:border-line-strong/80 hover:text-foreground"
                   )}
                 >
@@ -119,23 +122,28 @@ export function SyncExplainer() {
                   onClick={() => setStep(i)}
                   className={cn(
                     "flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs sm:text-sm transition-all duration-150 text-left cursor-pointer",
-                    matched && "border-success/40 bg-success-soft text-foreground font-normal",
-                    current && "border-highlight bg-highlight-soft text-highlight-foreground font-semibold shadow-xs ring-1 ring-highlight/30",
+                    matched && "border-success/40 bg-success-soft text-foreground",
+                    current && "border-highlight bg-highlight-soft text-highlight-foreground shadow-xs ring-1 ring-highlight/30",
                     !matched && !current && "border-line-strong text-muted-foreground/60 hover:border-line-strong/80 hover:text-foreground"
                   )}
                 >
                   <span>{word}</span>
-                  {matched ? (
-                    exactMatch ? (
-                      <Check className="size-3 text-success shrink-0" aria-label="exact match" />
-                    ) : (
-                      <span aria-label="fuzzy match" className="font-semibold text-highlight-foreground shrink-0">
-                        &approx;
-                      </span>
-                    )
-                  ) : exactMatch ? null : (
-                    <span className="text-[10px] text-muted-foreground/40 shrink-0">&approx;</span>
-                  )}
+                  {/* A slot of fixed size, so a chip is the same width before and after it is
+                      matched. Otherwise the tick appearing reflows the lines and the whole
+                      card grows and shrinks while it plays. */}
+                  <span className="flex size-3.5 shrink-0 items-center justify-center text-xs leading-none">
+                    {matched ? (
+                      exactMatch ? (
+                        <Check className="size-3 text-success" aria-label="exact match" />
+                      ) : (
+                        <span aria-label="fuzzy match" className="text-highlight-foreground">
+                          {APPROX}
+                        </span>
+                      )
+                    ) : exactMatch ? null : (
+                      <span className="text-muted-foreground/40">{APPROX}</span>
+                    )}
+                  </span>
                 </button>
               );
             })}
@@ -143,27 +151,22 @@ export function SyncExplainer() {
         </div>
       </div>
 
-      {/* Cuts Found Inset Box */}
+      {/* Cuts Found Inset Box: the three cuts sit side by side across the full width */}
       <div className="flex flex-col gap-2.5 rounded-lg border border-line-strong bg-secondary/50 p-4 text-xs sm:text-sm">
         <span className="font-semibold text-muted-foreground">Cuts found</span>
-        <ul className="flex flex-col gap-2 font-mono">
+        <ul className="grid gap-2 font-mono md:grid-cols-3">
           {CUTS.map((cut) => {
             const isFound = reached.includes(cut);
             return (
               <li
                 key={cut.index}
                 className={cn(
-                  "flex items-center justify-between transition-opacity duration-300",
-                  isFound ? "opacity-100 font-semibold text-foreground" : "opacity-30 text-muted-foreground"
+                  "flex items-center justify-between gap-3 rounded-md border border-line-strong bg-card px-3 py-2 transition-opacity duration-300",
+                  isFound ? "opacity-100 text-foreground" : "opacity-40 text-muted-foreground"
                 )}
               >
                 <span>{cut.label}</span>
-                <span
-                  className={cn(
-                    "tabular font-mono",
-                    isFound ? "text-highlight-foreground font-semibold" : "text-muted-foreground"
-                  )}
-                >
+                <span className={cn("tabular font-mono", isFound ? "text-highlight-foreground font-semibold" : "text-muted-foreground")}>
                   {isFound ? cut.time : ". . ."}
                 </span>
               </li>
@@ -175,7 +178,7 @@ export function SyncExplainer() {
       {/* Caption & Controls */}
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line-strong pt-3.5 text-xs text-muted-foreground">
         <p className="select-none">
-          A real take. A tick is an exact match, &approx; is a fuzzy one.
+          A real take. A tick is an exact match, {APPROX} is a fuzzy one.
         </p>
 
         <div className="flex items-center gap-1.5">

@@ -6,28 +6,28 @@ import { cn } from "@/lib/utils";
 interface StackCardItem {
   part: string;
   tech: string;
-  note: string;
+  detail: string;
   extra: string;
   tag: "AWS" | "External" | "Own code";
   icon: React.ElementType;
 }
 
 const ROW_1_PIPELINE: StackCardItem[] = [
-  { part: "Read the repo", tech: "GitHub API", note: "README, package files, sampled source", extra: "Fetches public tree, package.json dependencies, and top 5 source files for Gemini context.", tag: "External", icon: GitBranch },
-  { part: "Write the script", tech: "Gemini", note: "Beat-tagged Hinglish with a visual per beat", extra: "Drafts beat-by-beat narration with paired code/slide visual specs.", tag: "External", icon: ScrollText },
-  { part: "Hear you", tech: "Whisper large-v3", note: "Keeps English terms intact in Hindi speech", extra: "Runs on Groq cloud API for sub-second transcription with English word preservation.", tag: "External", icon: Mic },
-  { part: "Match voice to script", tech: "Two-pointer sync", note: "Plain TypeScript, no ML alignment model", extra: "Deterministic pointer walk handles stutters, filler words, and phonetic Hindi variations.", tag: "Own code", icon: AudioLines },
-  { part: "Cut the video", tech: "Playwright + FFmpeg", note: "Rendered on AWS Fargate, never on Lambda", extra: "Spawns headless Chromium beat capture and merges audio/video tracks at exact timestamps.", tag: "Own code", icon: Clapperboard },
-  { part: "Store and serve", tech: "S3, Lambda, API Gateway", note: "Recordings upload straight from browser to S3", extra: "Direct S3 presigned POST uploads bypass Lambda payload limits for raw audio takes.", tag: "AWS", icon: HardDrive },
+  { part: "Read the repo", tech: "GitHub API", detail: "Reads the README, package files and a few key source files.", extra: "One request per repo, cached for 15 minutes. Gemini gets the README, package files and a capped sample of code.", tag: "External", icon: GitBranch },
+  { part: "Write the script", tech: "Gemini", detail: "Writes beat by beat narration, each beat with its own visual.", extra: "Two steps: plan the scenes, then write each one. Length follows a word budget, in Hinglish or English.", tag: "External", icon: ScrollText },
+  { part: "Hear you", tech: "Whisper large-v3", detail: "Transcribes your voice on Groq and keeps English terms intact.", extra: "Gives a timestamp for every word, which the sync step uses to place each cut.", tag: "External", icon: Mic },
+  { part: "Match voice to script", tech: "Two-pointer sync", detail: "Plain TypeScript that skips stutters and fillers. No ML model.", extra: "Walks the script and transcript together, so repeats and dropped words don't throw the cuts off.", tag: "Own code", icon: AudioLines },
+  { part: "Cut the video", tech: "Playwright + FFmpeg", detail: "Captures each beat and joins audio and video on AWS Fargate.", extra: "Screenshots each beat in headless Chromium, then ffmpeg cuts at your word times and adds your face bubble.", tag: "Own code", icon: Clapperboard },
+  { part: "Store and serve", tech: "S3, Lambda, API Gateway", detail: "Recordings upload from the browser straight to S3.", extra: "Uploads use presigned URLs, so large recordings never pass through Lambda.", tag: "AWS", icon: HardDrive },
 ];
 
 const ROW_2_BACKBONE: StackCardItem[] = [
-  { part: "Workflow Orchestration", tech: "AWS Step Functions", note: "State machine managing script generation & rendering", extra: "Handles retries, failure notifications, and worker task polling automatically.", tag: "AWS", icon: Cpu },
-  { part: "Database", tech: "Amazon DynamoDB", note: "Single-table design for projects & scenes", extra: "Sub-10ms reads for project metadata, scene script arrays, and take manifests.", tag: "AWS", icon: Database },
-  { part: "Monitoring & Alerts", tech: "SNS + CloudWatch", note: "Real-time alerts for render job failures", extra: "Triggers CloudWatch alarms and SNS topic emails if a Fargate render fails.", tag: "AWS", icon: Activity },
-  { part: "Fallback Voice", tech: "Amazon Polly (Kajal)", note: "Neural Indian English & Hindi voice engine", extra: "Used as a safety net if a creator skips recording their own voice.", tag: "AWS", icon: Volume2 },
-  { part: "Infrastructure as Code", tech: "AWS SAM + CloudFormation", note: "Declarative AWS stack template", extra: "Deploys API Gateway routes, Lambda functions, and IAM roles in one command.", tag: "AWS", icon: Layers },
-  { part: "Frontend Stack", tech: "React 19 + Vite + Tailwind v4", note: "Geist Mono, Base UI primitives, Motion", extra: "Built for instant dev feedback and sub-second page loads without heavy UI frameworks.", tag: "External", icon: Code },
+  { part: "Workflow Orchestration", tech: "AWS Step Functions", detail: "Runs the render, retries it and alerts if it fails.", extra: "Starts the Fargate render. If it fails, the video is marked failed, quota refunded and an alert sent.", tag: "AWS", icon: Cpu },
+  { part: "Database", tech: "Amazon DynamoDB", detail: "Tracks usage limits and per-user quotas.", extra: "Holds each user's quota and rate-limit counters, which expire on their own.", tag: "AWS", icon: Database },
+  { part: "Monitoring & Alerts", tech: "SNS + CloudWatch", detail: "Emails the team when a render job fails.", extra: "A CloudWatch alarm on failed renders sends an email through an SNS topic.", tag: "AWS", icon: Activity },
+  { part: "Fallback Voice", tech: "Amazon Polly (Kajal)", detail: "Indian English and Hindi voice, used only as a fallback.", extra: "Reads the script in Kajal's voice, so a full video exists even if recording fails.", tag: "AWS", icon: Volume2 },
+  { part: "Infrastructure as Code", tech: "AWS SAM + CloudFormation", detail: "The whole AWS stack deploys with one command.", extra: "One template defines the Lambdas, API routes, roles, bucket, table and workflow.", tag: "AWS", icon: Layers },
+  { part: "Frontend Stack", tech: "React 19 + Vite + Tailwind v4", detail: "Geist Mono, Base UI and Motion. Fast to load.", extra: "React 19, Vite and Tailwind v4, with Base UI components and Motion for animation.", tag: "External", icon: Code },
 ];
 
 function MarqueeCard({ item }: { item: StackCardItem }) {
@@ -36,8 +36,8 @@ function MarqueeCard({ item }: { item: StackCardItem }) {
     <div
       tabIndex={0}
       className={cn(
-        "group relative flex w-80 shrink-0 flex-col justify-between gap-3 rounded-md border border-line-strong bg-card p-4 font-mono transition-all duration-200 cursor-pointer select-none focus-visible:outline-2 focus-visible:outline-ring",
-        "hover:scale-[1.02] hover:border-primary hover:bg-card hover:shadow-md hover:z-20"
+        "group relative flex h-36 w-80 shrink-0 flex-col justify-between gap-3 rounded-md border border-line-strong bg-card p-4 font-mono transition-colors duration-200 cursor-default select-none focus-visible:outline-2 focus-visible:outline-ring",
+        "hover:border-primary hover:shadow-md"
       )}
     >
       <div className="flex items-center justify-between">
@@ -58,12 +58,12 @@ function MarqueeCard({ item }: { item: StackCardItem }) {
         <Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground group-hover:text-primary transition-colors" />
         <div className="flex flex-col gap-0.5">
           <span className="text-sm font-semibold text-foreground group-hover:text-primary transition-colors">{item.tech}</span>
-          <span className="text-xs text-muted-foreground leading-snug">{item.note}</span>
+          {/* Both texts share one grid cell, so the card never changes size on hover or focus. */}
+          <span className="grid text-xs leading-snug text-muted-foreground">
+            <span className="col-start-1 row-start-1 transition-opacity duration-200 group-hover:opacity-0 group-focus-visible:opacity-0">{item.detail}</span>
+            <span className="col-start-1 row-start-1 text-foreground opacity-0 transition-opacity duration-200 group-hover:opacity-100 group-focus-visible:opacity-100">{item.extra}</span>
+          </span>
         </div>
-      </div>
-
-      <div className="hidden text-[11px] text-muted-foreground border-t border-line-strong pt-2 leading-relaxed group-hover:block transition-all">
-        {item.extra}
       </div>
     </div>
   );

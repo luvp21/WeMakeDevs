@@ -23,12 +23,12 @@ export function FooterWord() {
   }, []);
 
   return (
-    <div ref={containerRef} aria-hidden className="relative w-full overflow-hidden pt-6 select-none">
-      <div className="mx-auto flex max-w-[1200px] items-end justify-between px-4 sm:px-6">
+    <div ref={containerRef} aria-hidden className="relative w-full overflow-hidden select-none">
+      <div className="mx-auto flex max-w-[1200px] items-end justify-between px-4 sm:-mt-4 sm:px-6 lg:-mt-8">
         {/* Soft stroke outline English "Vaani" */}
         <div
           className={cn(
-            "relative font-mono text-6xl sm:text-7xl lg:text-9xl font-extrabold tracking-tighter text-transparent transition-all duration-700 ease-out select-none cursor-default group",
+            "relative font-mono leading-[0.8] text-6xl sm:text-8xl lg:text-[13rem] font-extrabold tracking-tighter text-transparent transition-all duration-700 ease-out select-none cursor-default group",
             inView || reduce ? "translate-y-[32%] opacity-100" : "translate-y-[55%] opacity-0"
           )}
           style={{
@@ -43,7 +43,7 @@ export function FooterWord() {
         {/* Soft stroke outline Devanagari "वाणी" */}
         <div
           className={cn(
-            "relative font-devanagari text-6xl sm:text-7xl lg:text-9xl font-bold tracking-widest text-transparent transition-all duration-700 ease-out select-none cursor-default group",
+            "relative top-4 font-devanagari sm:top-6 lg:top-8 leading-[0.8] text-6xl sm:text-8xl lg:text-[13rem] font-bold tracking-widest text-transparent transition-all duration-700 ease-out select-none cursor-default group",
             inView || reduce ? "translate-y-[32%] opacity-100" : "translate-y-[55%] opacity-0"
           )}
           style={{
