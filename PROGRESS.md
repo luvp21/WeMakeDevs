@@ -1029,6 +1029,16 @@ Notes:
   (empty `GithubToken` param) would lift the limit to 5,000/hour; user creates it and adds
   `GITHUB_TOKEN` to `backend/.env`.
 
+- **Documentation brought up to date (Sept 20).** `README.md` rewritten (what it does, features,
+  pipeline, where AWS fits and what is honestly not on AWS, run locally, deploy, known limits, live
+  link). `docs/ARCHITECTURE.md` rewritten to the as-built pipeline, deployment shape, S3 layout and
+  config. `docs/FEATURES.md` now says built / added / not built for every item.
+  `docs/SYNC_ALGORITHM.md` keeps the original spec and gains an "As built" section (phonetic keys,
+  proportional edit distance, look-ahead, Whisper retry chain, render rules, measured accuracy).
+  `docs/SCOPE_PLAN.md` ticked and dated; `TASK_SPLIT`, `HACKATHON_RULES`, `PRODUCT.md`,
+  `CLAUDE.md` (decisions 6 to 8 and a "where things stand" section) and `backend/.env.example`
+  (RENDER_MODE, us-east-1) corrected. Still to write: the submission writeup.
+
 ## Sunday, Sept 20
 
 - [ ] Sync algorithm wired to a real recorded scene

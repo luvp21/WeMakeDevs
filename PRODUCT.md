@@ -10,7 +10,7 @@ web
 Developers who want to explain a codebase to others (teammates, an audience, hackathon judges) as a short video, in their own voice and face, without editing footage by hand. Primary language of the narration is Hinglish.
 
 ## Product Purpose
-Vaani turns a public GitHub repo into a narrated explainer video. It drafts a beat-tagged Hinglish script, the user records it scene by scene against a teleprompter, and Vaani cuts the matching visuals (real code, slides, diagrams) in at the exact moments the user says them. Success is a finished video that sounds and looks like the user made it.
+Vaani turns a public GitHub repo into a narrated explainer video. It drafts a beat-tagged script in English or Hinglish, the user records it scene by scene against a teleprompter, and Vaani cuts the matching visuals (real code, slides, diagrams) in at the exact moments the user says them. Success is a finished video that sounds and looks like the user made it.
 
 ## Positioning
 The video uses the user's real recorded voice and face, with visuals timed to what they actually said (two-pointer sync against a Whisper transcript), not a synthetic voiceover. An AI voice (Amazon Polly Kajal) exists only as a fallback.

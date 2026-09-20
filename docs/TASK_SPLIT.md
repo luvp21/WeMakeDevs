@@ -1,14 +1,16 @@
 # Task split
 
+*Written on day one as a suggested split. The tech names below are updated to what was built; who did what is for the team to fill in.*
+
 Fill in the names below once you've actually decided — this is a suggested split based on how the pipeline naturally divides, not a fixed assignment.
 
 ## Track A — Intelligence side
 *Owns: stages 1–4, 6–7 (ingest, script gen, review, visual gen, transcription, sync algorithm)*
 
 - Repo ingest and capping logic
-- Bedrock prompt design for Hinglish, beat-tagged script generation
+- Gemini prompt design for English and Hinglish, beat-tagged script generation
 - Visual-spec generation per beat
-- Transcribe integration
+- Transcription integration (Whisper via Groq)
 - The two-pointer sync algorithm (`docs/SYNC_ALGORITHM.md`) — build and unit-test this in isolation before it needs to touch a real recording
 
 ## Track B — Capture & render side
@@ -17,7 +19,7 @@ Fill in the names below once you've actually decided — this is a suggested spl
 - Teleprompter recording UI (`getUserMedia` for webcam scenes)
 - Tab-picker capture for UI-demo scenes (`getDisplayMedia`)
 - Fargate/MediaConvert render pipeline
-- Step Functions orchestration wiring the stages together
+- Wiring the stages together (the app's stepper plus state derived from S3; no Step Functions in the end)
 - AWS account setup, credit form, Builder Center verification for both members
 
 ## Shared checkpoint

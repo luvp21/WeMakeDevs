@@ -55,3 +55,51 @@ Confirm the checkpoints still land at the right script positions before this tou
 ## Output
 
 `checkpoints[] { beat_id, timestamp_ms }` per scene, consumed directly by the render stage (see `docs/ARCHITECTURE.md`) to decide when to switch the visual.
+
+---
+
+# As built
+
+The spec above is the design. This section is what the code in `backend/src/lib/sync/` actually does, including everything real speech taught us that the spec didn't anticipate. Each item was found by running against real recordings, not assumed.
+
+## Tokenizing
+
+Both sides are split on whitespace and any token with no letter or digit is dropped ("focus karo, initial runners" stays; a lone dash does not). A dash or other punctuation normalizes to nothing and can never match, so leaving it in stalled the walk. The first word of each beat is the beat boundary.
+
+## Matching (`matches.ts`)
+
+`wordsMatch` is layered, cheapest first:
+
+1. **Exact** after lowercasing and stripping punctuation.
+2. **Phonetic key**: Hindi has no fixed Latin spelling, so "cheez" and "chiija" must compare equal. The key folds long vowels (`aa`, `ii`, `ee`, `oo`, `uu`), `ph`/`f`, `ck`/`k`, `z`/`j`, `v`/`w`, doubled letters and a trailing `a`. Keys under three letters never match this way.
+3. **Edit distance**, proportional to length: about one edit per three characters, with a floor of 2 edits. Words of two letters or fewer may differ by at most 1 edit ("ye" must not match "hi").
+
+## The walk (`index.ts`)
+
+Two pointers as specified, plus:
+
+- **Look-ahead on a mismatch.** If the next two script words match the next two transcript words, the word was misheard and the transcript word stands in for it ("substituted", both pointers advance). If the next two script words match the transcript from `j` on, the word was never said ("dropped", only the script pointer advances and the transcript word is kept for the next script word). Two consecutive matches are required, so one coincidental fuzzy match can't trigger a skip.
+- **Stall threshold of 18** transcript words with no script progress: the script word is skipped (logged) and, if it opened a beat, that beat's checkpoint is taken from the current transcript word.
+- **Safety net for uncovered beats.** If the transcript ends before the script does, the remaining beats are spread across the time between the last real checkpoint and the end of the transcript, in proportion to their word counts, instead of all landing on the same final timestamp.
+
+`computeSync` requires every scene to be transcribed and stores the result in S3 (`sync/<id>/result.json`).
+
+## Before matching: getting a usable transcript (`transcribe/groq.ts`)
+
+- Whisper is **primed with the scene's own script** as its prompt, which fixes spelling and vocabulary. Without it, English terms came back in Devanagari.
+- Forcing a language on Hinglish audio was unreliable (a hallucinated one-liner, a translation to English, a truncated transcript on the same audio), so Hinglish starts with auto-detect and English scripts start with `en`. Each attempt is scored by how much of the script it reproduces in order; below 0.5, the next setting is tried.
+- Devanagari output is transliterated to Latin (`transliterate.ts`) before it is stored, but only words that actually contain Devanagari, so "API" is never mangled.
+
+## In the render
+
+- The first beat starts at 0, not at its own checkpoint, so the silence before the first word stays in the video and every later cut lands where it should.
+- A beat is never shorter than 0.8 seconds. Only a sync stall can produce a gap that small, and a visual flashing for a few frames reads as a glitch.
+- The last beat runs to the end of the recording.
+
+## How well it works
+
+Measured against Polly narration, where the true timing of every beat is known, all beats landed within about 440 ms. Against a real human recording the same code produced cuts that lined up when the finished video was watched. Beats can still land a beat early or late when Whisper mishears a run of words; that is the case a future timeline editor would fix by hand.
+
+## Tests
+
+`sync/index.test.ts` covers the spec's three cases (stutter, dropped word, filler) plus substitution, spelling variants and punctuation tokens. `real-data.test.ts`, `whisper-real-data.test.ts` and `e2e-real-data.test.ts` run real transcripts from real recordings.

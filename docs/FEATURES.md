@@ -1,35 +1,59 @@
 # Feature mapping
 
-## Must-have — the walking skeleton, nothing works as a demo without all of these
+Status as of Sept 20, 2026. The must-have and good-to-have split below is the original one, kept because the reasoning still holds; each row now says what actually happened.
 
-| Feature | What it does | AWS piece | Why it's non-negotiable |
+## Must-have: the walking skeleton
+
+| Feature | What it does | Built with | Status |
 |---|---|---|---|
-| Repo ingest | Accept a GitHub URL, clone it, pull README + sample key files (capped) | S3, Lambda | No input, no product |
-| User context box | Free-text field, what to emphasize before script gen | app layer | Makes it *your* explanation, not a generic one |
-| Hinglish-aware script generation | Bedrock reads repo + context, outputs scene → beats, in natural code-switched Hinglish, not translated-sounding Hindi | Bedrock | The actual AI core judges score on "built on AWS," and Hinglish is now core to the pitch |
-| Script review/edit | User sees the locked script, edits before recording | app layer | Safety net for AI mistakes |
-| Visual generation | Per beat, generate the HTML slide/highlight/graph the beat calls for | Bedrock | The actual "look good" payoff |
-| Kajal (Polly) fallback narration | AI voice reads the script over the visuals as a complete backup video | Polly | If the human-recording/sync path breaks Saturday night, this version still ships |
-| Teleprompter-guided, scene-by-scene recording | Shows script one scene at a time; webcam for talking-head scenes, browser tab-picker for UI-demo scenes | `getUserMedia`, `getDisplayMedia` | This is the headline differentiator — real voice, real face |
-| Transcription | Word-level timestamps on each recorded scene | Transcribe | Required input to the sync algorithm |
-| Two-pointer checkpoint sync | Matches known script to messy transcript, finds real timestamps for beat boundaries | plain code | See `docs/SYNC_ALGORITHM.md` — this is the hardest and most novel piece |
-| Auto-cut render | Assembles the final video: switches visuals at checkpoint timestamps, full-screen face vs. overlay | Fargate or MediaConvert | The thing you actually submit |
-| Beat-level visual tagging in script gen | Each beat's script output includes which visual type it wants (highlight lines X–Y, show graph, show UI) | Bedrock (part of stage 2) | Without this the render step has nothing to key off |
+| Repo ingest | Accept a GitHub URL, pull the README, package files and a capped sample of source files | Lambda, GitHub tree API + raw files, S3 cache | Done. One API request per repo, 15 minute cache |
+| User context box | Free-text note on what to emphasize (real numbers, audience, purpose) | app | Done. Notes are used as-is, never invented from |
+| Script generation | Scenes broken into beats, each with a planned visual, in English or natural Hinglish | Gemini (Bedrock implemented as an alternative) | Done. Two-stage plan-then-write, length control, spoken style rules |
+| Script review and edit | Edit the wording, regenerate a visual or a whole scene from the new text, lock | app + Lambda | Done |
+| Visual generation | Per beat: code highlight, slide, diagram, chart, or product-demo footage | Shiki, shared HTML/CSS, Playwright | Done |
+| Polly fallback narration | AI voice reads the script as a complete backup video | Amazon Polly (Kajal) | Done. Verified end to end; never the primary path |
+| Teleprompter, scene-by-scene recording | One scene at a time; camera + mic; pop-out prompter | `getUserMedia`, MediaRecorder | Done |
+| Product-demo recording | One silent screen clip per demo step, apart from the narration | `getDisplayMedia` | Done. Replaced recording screen and voice together (see below) |
+| Transcription | Word timestamps on each recorded scene | Whisper large-v3 via Groq | Done. AWS Transcribe was tried and replaced |
+| Two-pointer checkpoint sync | Matches the known script to the messy transcript | plain code | Done. Beats within about 440 ms of ground truth in tests. See `docs/SYNC_ALGORITHM.md` |
+| Auto-cut render | Switches visuals at checkpoint times, with the presenter's face in a bubble | Fargate, Playwright, ffmpeg | Done |
+| Beat-level visual tagging | Every beat says which visual it wants | part of script generation | Done |
 
-## Good-to-have — only after everything above works end to end
+## Added after the original plan
 
-| Feature | Payoff | Effort | Notes |
-|---|---|---|---|
-| Auto-burned captions | More watchable for judges skimming with sound off | Low | Nearly free — you already have Transcribe's word timestamps |
-| UI-demo screen-capture scenes | Strong, concrete visual of the actual app working | Medium | Only if it's your own app — you get cursor/click data for free; someone else's site gives you pixels only |
-| Auto-zoom-on-click for UI-demo footage | Recordly-style polish | Medium, do last | Depends entirely on having structured cursor data, see above |
-| Nicer transition styles (full-screen ↔ overlay) | Looks less like a rough cut | Medium | Purely cosmetic |
-| Diagram generation beyond code snippets (architecture graphs) | Stronger visual variety, helps Best UI | Medium–high | Don't attempt until core render works |
-| Manual override on auto-cut timing | Escape hatch if a checkpoint lands wrong | Medium | |
-| Multiple export aspect ratios (16:9 / 9:16) | Nice for posting to X/LinkedIn | Low | Purely cosmetic, do last |
+| Feature | Why |
+|---|---|
+| Five video formats (code walkthrough, hackathon demo, product demo, architecture overview, launch teaser) | The first output read as a code explanation only; hackathon and product videos need slides, diagrams and demos in balance |
+| Target length (30 seconds to 5 minutes) | Scripts are planned to a word budget at 135 words per minute |
+| Bring your own script | Paste narration; Vaani keeps the words and builds visuals around them |
+| English or Hinglish | So the tool is useful to anyone who wants a fully English video |
+| Spoken-style writing and a machine-writing check | Drafts sounded written, not spoken. Rules and a retry, using patterns from the open-source humanizer skill |
+| Presenter face bubble | The first render had the voice but not the person |
+| One demo clip per step, recorded silently | Recording the screen and the narration together collided with apps that use the mic (a voice bot), needed the app in the right state on cue, and made talking while clicking the norm |
+| Clip fitting (speed up to fit, never cut the end, hold the last frame) | A demo's result is usually at the end of the clip |
+| Projects dashboard, landing page | Reopen any project at the right step |
+| Local render mode | So a render can't silently run older code than the app |
 
-## Explicitly descoped (don't build these for this hackathon)
+## Good-to-have, and what happened
 
-- Automated browser-driving of a target app's UI (too fragile in the time available; screen-share is user-driven instead)
-- Phrase/meaning-based scene detection (replaced by the two-pointer positional match — see `docs/SYNC_ALGORITHM.md`)
-- Anything requiring a labeled training dataset (this project never needed one — it's reasoning/generation, not classification)
+| Feature | Status |
+|---|---|
+| Diagram generation beyond code snippets | Done (diagrams and bar charts) |
+| Multiple aspect ratios (16:9 / 9:16) | Not built |
+| Auto-burned captions | Not built. The word timestamps are there, so it is cheap to add |
+| Auto-zoom on click for demo footage | Not built. A browser can't see clicks in another tab without extra capture, so it stays good-to-have |
+| Manual override of cut timing | Not built. The preview-and-adjust step (see below) is the intended home |
+| Nicer transitions between full-screen and overlay | Partly: every beat enters with an animation; no other transitions |
+
+## Ideas we decided not to do today
+
+- **A post-recording editor**: play the whole video in the browser, nudge cut points, trim and speed clips, draw zoom regions. It would sit between Sync and Render, reading a small list of overrides on top of the sync result. Judged too large for deadline day.
+- **Trim or fast-forward a section of a recorded clip.** Pausing while recording is the workaround.
+- **Tab audio in demo clips**, so a voice bot's replies are heard. Show its text on screen for now.
+
+## Explicitly descoped
+
+- Automated browser-driving of a target app's UI (too fragile; screen-share is user-driven)
+- Phrase or meaning-based scene detection (replaced by the two-pointer positional match)
+- Anything that needs a labelled training dataset (this is generation and matching, not classification)
+- Hindi in Devanagari script (English and Hinglish in Latin letters only)
