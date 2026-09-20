@@ -1019,6 +1019,16 @@ Notes:
   reopens it on the video step. Suite 47.
   **Not yet done**: a real-webcam run on the live URL (user's test); no auth; GitHub token.
 
+- **GitHub ingest limit (deployed).** Unauthenticated GitHub allows 60 API requests an hour per
+  IP and Lambda IPs are shared. An ingest now spends ONE API request (the file tree): `HEAD`
+  replaces the default-branch lookup in both the tree API and raw.githubusercontent.com (file
+  contents were already off the API limit). A repo is remembered in S3 for 15 minutes
+  (`ingest-cache/<owner>/<repo>.json`, best-effort), so retries and repeat demos cost nothing:
+  5.7s then 0.5s locally. Rate-limit and not-found errors now say what happened ("try again in
+  about 17 minutes", "check the URL and that it's public"). Suite 51. Still open: a GitHub token
+  (empty `GithubToken` param) would lift the limit to 5,000/hour; user creates it and adds
+  `GITHUB_TOKEN` to `backend/.env`.
+
 ## Sunday, Sept 20
 
 - [ ] Sync algorithm wired to a real recorded scene
