@@ -26,7 +26,7 @@ export function canAccess(auth: Auth, owner: string | undefined): boolean {
   return auth.role === "judge" || owner === auth.username;
 }
 
-export async function authorizeScript(auth: Auth, scriptId: string): Promise<void> {
+async function authorizeScript(auth: Auth, scriptId: string): Promise<void> {
   if (auth.role === "judge") return;
   const locked = await getLockedScript(scriptId).catch(() => null);
   // Same answer for "doesn't exist" and "isn't yours", so ids can't be probed.

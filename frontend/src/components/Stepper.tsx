@@ -26,10 +26,6 @@ interface StepperProps {
   onSelect: (id: StepId) => void;
 }
 
-export function stepMeta(id: StepId) {
-  return STEP_META[id];
-}
-
 function StepButton({
   step,
   index,

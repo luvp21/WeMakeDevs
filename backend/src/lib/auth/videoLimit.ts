@@ -1,7 +1,7 @@
 import { hasLimits, MAX_VIDEO_MINUTES, WORDS_PER_MINUTE, countWords, formatDuration, wordBudget, LockScriptRequestSchema, ScriptGenRequestSchema, narrationResultKey, syncResultKey, type AuthRole, type NarrationResult, type SyncResult } from "@vaani/shared";
 import { getJson } from "../s3.js";
 import { HttpError } from "./http.js";
-import type { Auth, Check } from "./access.js";
+import type { Check } from "./access.js";
 
 // Every account except the judge makes one video of at most 3 minutes. The
 // limit is enforced here, on the server, at the three points where length is set:
@@ -67,4 +67,3 @@ export const checkRecordingLength: Check = async (auth, { scriptId }) => {
     throw new HttpError(400, `Your recording runs about ${formatDuration(total / 1000)}. The limit is ${MAX_VIDEO_MINUTES} minutes, so please re-record with shorter scenes.`);
   }
 };
-export type { Auth };

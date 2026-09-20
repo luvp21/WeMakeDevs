@@ -4,7 +4,7 @@
 //
 // Schemas are the source of truth; types are inferred from them so the same
 // shape is used for both compile-time typing and runtime validation at
-// system boundaries (API request bodies, Bedrock tool-use output).
+// system boundaries (API request bodies, model tool-use output).
 import { z } from "zod";
 import { VideoFormatIdSchema } from "./formats.js";
 import { ScriptLanguageSchema } from "./languages.js";
@@ -13,10 +13,11 @@ export * from "./storageKeys.js";
 export * from "./formats.js";
 export * from "./languages.js";
 export * from "./auth.js";
+export * from "./ingest.js";
 export * from "./duration.js";
 export * from "./visualDesign.js";
 
-export const VisualTypeSchema = z.enum(["code_highlight", "slide", "graph", "ui_demo", "diagram", "chart"]);
+export const VisualTypeSchema = z.enum(["code_highlight", "slide", "ui_demo", "diagram", "chart"]);
 export type VisualType = z.infer<typeof VisualTypeSchema>;
 
 export const CodeHighlightSpecSchema = z.object({
@@ -33,13 +34,6 @@ export const SlideSpecSchema = z.object({
   html: z.string(),
 });
 export type SlideSpec = z.infer<typeof SlideSpecSchema>;
-
-export const GraphSpecSchema = z.object({
-  visual_type: z.literal("graph"),
-  html: z.string(),
-  description: z.string(),
-});
-export type GraphSpec = z.infer<typeof GraphSpecSchema>;
 
 export const UiDemoSpecSchema = z.object({
   visual_type: z.literal("ui_demo"),
@@ -88,7 +82,6 @@ export type ChartSpec = z.infer<typeof ChartSpecSchema>;
 export const VisualSpecSchema = z.union([
   CodeHighlightSpecSchema,
   SlideSpecSchema,
-  GraphSpecSchema,
   UiDemoSpecSchema,
   DiagramSpecSchema,
   ChartSpecSchema,

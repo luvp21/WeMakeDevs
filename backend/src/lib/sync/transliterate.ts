@@ -1,10 +1,9 @@
 import Sanscript from "@indic-transliteration/sanscript";
 import type { TranscriptWord } from "@vaani/shared";
 
-// AWS Transcribe's hi-IN / multi-language output comes back in Devanagari
-// script ("तो यहाँ पे देखो..."), but locked scripts are written in romanized
-// Hinglish ("Toh yahan pe dekho...") — confirmed empirically against a real
-// Transcribe job, not assumed. The two-pointer sync algorithm's text
+// Whisper's Hindi output comes back in Devanagari script ("तो यहाँ पे देखो..."), as AWS
+// Transcribe's did, but locked scripts are written in romanized Hinglish ("Toh yahan pe
+// dekho...") — confirmed against real transcripts, not assumed. The two-pointer sync algorithm's text
 // matching can't work across scripts, so transcript text is transliterated
 // back to Latin before it ever reaches wordsMatch(). ITRANS with syncope
 // (Hindi-style schwa deletion — "ajay" not "ajaya") and these alternates
@@ -16,7 +15,7 @@ const PREFERRED_ALTERNATES = {
 
 const DEVANAGARI_RANGE = /[ऀ-ॿ]/;
 
-export function devanagariToLatin(text: string): string {
+function devanagariToLatin(text: string): string {
   return Sanscript.t(text, "devanagari", "itrans", {
     syncope: true,
     preferred_alternates: PREFERRED_ALTERNATES,

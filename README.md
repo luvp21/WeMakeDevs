@@ -46,7 +46,7 @@ The core idea is the sync. The script is known word for word before you record, 
 
 | Piece | Service |
 |---|---|
-| API (15 routes) | API Gateway HTTP API + Lambda (Node 24, esbuild bundles) |
+| API (20 routes) | API Gateway HTTP API + Lambda (Node 24, esbuild bundles) |
 | Web app | A small Lambda serving the built frontend behind the same API (one https origin, no CORS) |
 | Storage | S3: locked scripts, recordings, clips, transcripts, sync results, videos; presigned URLs so recordings go straight from the browser to S3 |
 | Video rendering | ECS Fargate one-off task, image in ECR (never Lambda: it would hit the runtime limit) |
@@ -57,7 +57,7 @@ The core idea is the sync. The script is known word for word before you record, 
 | AI-voice fallback | Amazon Polly, Kajal voice (Indian English and Hindi) |
 | Infrastructure | One SAM/CloudFormation template: `backend/template.yaml` |
 
-**What is not on AWS, honestly:** script generation uses Google Gemini and transcription uses Whisper large-v3 through Groq. Both sit behind small provider interfaces (`backend/src/lib/llm`, `backend/src/lib/transcribe`); Bedrock and AWS Transcribe implementations exist as alternatives. AWS Transcribe was tried first and replaced because it mangled code-switched Hindi and English (findings in `PROGRESS.md`). The production plan is a self-hosted Whisper on AWS.
+**What is not on AWS, honestly:** script generation uses Google Gemini and transcription uses Whisper large-v3 through Groq. Each sits behind one small module (`backend/src/lib/llm`, `backend/src/lib/transcribe`) so it can be swapped in one place. Bedrock is not available on this AWS account, and AWS Transcribe was tried first and replaced because it mangled code-switched Hindi and English (findings in `PROGRESS.md`). The production plan is a self-hosted Whisper on AWS.
 
 **Why not CloudFront:** this account can't create CloudFront resources until AWS verifies it, so the frontend is served from Lambda instead. It is still https, which the camera and screen capture require.
 
@@ -127,7 +127,7 @@ docker build -f render/Dockerfile -t <account>.dkr.ecr.<region>.amazonaws.com/va
 docker push <account>.dkr.ecr.<region>.amazonaws.com/vaani-render:latest
 ```
 
-Deploy output echoes parameter overrides, so redact keys before sharing a log.  `GithubToken` is an optional parameter that lifts GitHub's unauthenticated limit.
+Pass **every** parameter on every deploy: a parameter left out reverts to its default, which for the Google ones removes the Cognito Google resources. Deploy output echoes parameter overrides, so redact keys before sharing a log.  `GithubToken` is an optional parameter that lifts GitHub's unauthenticated limit.
 
 ## Repo map
 

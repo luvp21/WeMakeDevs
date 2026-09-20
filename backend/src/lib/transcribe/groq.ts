@@ -123,13 +123,11 @@ export async function markTranscriptionStarted(scriptId: string, sceneId: string
   await putJson(transcribeOutputKey(scriptId, sceneId), marker);
 }
 
-// Whisper (via Groq) is the primary STT path, not AWS Transcribe: Transcribe's
-// per-segment language ID mangled consecutive English loanwords ("async
-// function" heard as "tracing function") in a way transliteration, looser
-// matching and a custom vocabulary couldn't fix. Groq's API is a single
-// synchronous call (no job polling), so the completed result is written
-// straight to the same S3 key AWS Transcribe would have used; the status
-// endpoint just reads whatever is there.
+// Transcription is Whisper via Groq, not AWS Transcribe (which was tried first): Transcribe's
+// per-segment language ID mangled consecutive English loanwords ("async function" heard as
+// "tracing function") in a way transliteration, looser matching and a custom vocabulary
+// couldn't fix. Groq's API is a single synchronous call (no job polling), so the result is
+// written straight to the S3 key the status endpoint reads.
 async function transcribeOnce(audio: Buffer, params: { language?: string; prompt?: string }): Promise<TranscriptWord[]> {
   const file = await toFile(audio, "recording.webm");
   const response = (await client().audio.transcriptions.create({

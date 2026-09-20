@@ -28,7 +28,6 @@ interface ScriptReviewProps {
 const VISUAL_LABEL: Record<VisualSpec["visual_type"], string> = {
   code_highlight: "Code",
   slide: "Slide",
-  graph: "Diagram",
   diagram: "Diagram",
   chart: "Chart",
   ui_demo: "Product demo",
@@ -40,8 +39,6 @@ function visualSpecSummary(spec: VisualSpec): string {
       return `${spec.file_path || "(no file)"}  L${spec.start_line}-${spec.end_line}`;
     case "slide":
       return "";
-    case "graph":
-      return spec.description || "";
     case "diagram":
       return spec.title ?? `${spec.nodes.length} components`;
     case "chart":

@@ -20,7 +20,7 @@ if (!site || !site.startsWith("http")) {
 const env = readFileSync(path.join(dir, ".env"), "utf8");
 const secret = /^AUTH_SECRET=(.+)$/m.exec(env)?.[1]?.trim();
 if (!secret || secret.length < 32) {
-  console.error("AUTH_SECRET is missing from backend/.env. Run make-accounts.mjs first.");
+  console.error("AUTH_SECRET is missing from backend/.env. Set it to any random string of 32 or more characters.");
   process.exit(1);
 }
 const key = createHmac("sha256", secret).update("vaani/judge-link/v1").digest("base64url");

@@ -11,7 +11,7 @@ function getBrowser(): Promise<Browser> {
 
 // How long each beat's entrance animation plays, and at what frame rate it is
 // captured. After the intro the settled final state is simply held.
-export const INTRO_SECONDS = 1.3;
+const INTRO_SECONDS = 1.3;
 export const CAPTURE_FPS = 30;
 
 export async function screenshotHtml(html: string, outPath: string): Promise<void> {

@@ -8,6 +8,7 @@ import {
   chartHtml,
   demoFrameHtml,
   diagramHtml,
+  findIngestedFile,
   slideHtml,
   type IngestResult,
   type VisualSpec,
@@ -16,14 +17,6 @@ import {
 interface VisualPreviewProps {
   spec: VisualSpec;
   ingestResult: IngestResult | null;
-}
-
-function findFileContent(ingestResult: IngestResult | null, filePath: string): string | null {
-  if (!ingestResult) return null;
-  const file = [...ingestResult.sample_files, ...ingestResult.package_files].find(
-    (f) => f.path === filePath,
-  );
-  return file?.content ?? null;
 }
 
 // Renders the exact page the video renderer screenshots (same shared HTML/CSS),
@@ -66,7 +59,7 @@ function CodeHighlightPreview({
   spec: Extract<VisualSpec, { visual_type: "code_highlight" }>;
   ingestResult: IngestResult | null;
 }) {
-  const content = findFileContent(ingestResult, spec.file_path);
+  const content = findIngestedFile(ingestResult, spec.file_path);
   const instanceId = useId();
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -113,7 +106,6 @@ export function VisualPreview({ spec, ingestResult }: VisualPreviewProps) {
     case "code_highlight":
       return <CodeHighlightPreview spec={spec} ingestResult={ingestResult} />;
     case "slide":
-    case "graph":
       return <FramePreview html={slideHtml(spec.html, undefined)} />;
     case "diagram":
       return <FramePreview html={diagramHtml(spec, undefined)} />;

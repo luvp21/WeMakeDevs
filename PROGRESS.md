@@ -1172,6 +1172,33 @@ Notes:
   `/etc/hosts` line. Lesson: don't probe a brand-new Cognito domain from the machine that will
   use it until it has resolved elsewhere.
 
+- **Google login confirmed working; alerts subscribed; concurrency measured (Sept 20).** The user
+  signed in with Google successfully (after working around the DNS cache). Alert email set to the
+  address the user gave (the `AlertEmail` parameter; the subscription is PendingConfirmation until the
+  link in AWS's email is clicked). **Every deploy must pass every parameter** (Gemini, Groq,
+  AuthSecret, GoogleClientId, GoogleClientSecret, AlertEmail, VpcId, SubnetIds): leaving Google's
+  out would delete its Cognito resources. **Lambda concurrency (10) measured for real visitors**:
+  a page load is 6 requests at once (the page plus 5 files, all served by the site Lambda); 1, 2, 3
+  and 5 visitors loading at the same instant gave 0 failures out of 6, 12, 18 and 30 requests; 8 at
+  once gave 12 failures (503) out of 48. So about 5 truly simultaneous visitors are fine and only a
+  burst beyond that breaks (a blank page until reload). Worth a free AWS Support case; not a blocker.
+
+- **Repo audit and cleanup (Sept 20, afternoon).** Method: knip (unused files, exports, packages)
+  plus the compiler's `--noUnusedLocals`, then evidence for every removal. Removed: the legacy
+  one-shot `/api/script` route (Lambda, handler, local route, `generateScript`,
+  `mapWithConcurrency`, the frontend wrapper; the app uses plan then write-scene); the Bedrock
+  provider and the AWS Transcribe provider with their parser, `transcriptionJobName`, npm packages
+  (`client-bedrock-runtime`, `client-transcribe`, `@smithy/types`) and IAM permissions
+  (`transcribe:*`), so `LLM_PROVIDER` / `STT_PROVIDER` / `BEDROCK_MODEL_ID` are gone and the two
+  switches became direct implementations; the legacy `graph` visual type (schema, generator, renderer,
+  preview; no stored script used it); `scriptWordCount`, `stepMeta`, two unused shadcn files, and the
+  unused `next-themes` and render `zod` packages; dead re-exports and needless `export` keywords.
+  De-duplicated `formatDuration` (now shared) and `findFileContent` (now `findIngestedFile` in
+  shared, used by the renderer and the preview). Left alone on purpose: the generated shadcn
+  component exports and Poorvanshi's landing components (she is editing them), and knip's false
+  positives (the fonts, `tw-animate-css`, `shadcn` and `tailwindcss` are imported from CSS). Net:
+  about 570 fewer lines, no behaviour change, suite still 95.
+
 ## Sunday, Sept 20
 
 - [ ] Sync algorithm wired to a real recorded scene

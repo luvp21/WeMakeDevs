@@ -1,9 +1,8 @@
 import { GoogleGenAI, FunctionCallingConfigMode } from "@google/genai";
 import type { ForcedToolCallParams, LlmClient } from "./types.js";
 
-// Primary LLM provider. The organizers confirmed Bedrock is optional as long
-// as the project is deployed on AWS (see HACKATHON_RULES.md), so script-gen
-// runs on Gemini from a Lambda.
+// Script generation runs on Gemini, called from a Lambda. (Bedrock is not available on this
+// AWS account, and the hackathon only requires the project itself to be deployed on AWS.)
 
 // "latest" alias avoids pinning to a dated model name that may not exist by
 // the time this runs — confirm against Google AI Studio if behavior seems off.

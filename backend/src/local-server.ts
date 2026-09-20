@@ -18,7 +18,7 @@ import {
 } from "@vaani/shared";
 import { ZodError } from "zod";
 import { ingestRepo, IngestError } from "./lib/ingest.js";
-import { generateScript, generateScene, planScript, writePlannedScene } from "./lib/scriptGen.js";
+import { generateScene, planScript, writePlannedScene } from "./lib/scriptGen.js";
 import { lockScript, getLockedScript } from "./lib/lockScript.js";
 import { narrateScript } from "./lib/narration/index.js";
 import { triggerRenderTask } from "./lib/render/trigger.js";
@@ -30,6 +30,7 @@ import { listProjects, getProject } from "./lib/projects.js";
 import { guard, HttpError, type Auth, type Guard } from "./lib/auth/access.js";
 import { checkLockedScript, checkOwnScript, checkRecordingLength, limitedMinutes } from "./lib/auth/videoLimit.js";
 import { authConfig, google, judgeLink, login, me, refresh } from "./handlers/auth.js";
+import { warmVerifier } from "./lib/auth/verify.js";
 
 // Local dev server: same lib functions the Lambda handlers call, so behavior
 // stays identical when this deploys behind API Gateway. Not used in prod.
@@ -121,20 +122,6 @@ app.post("/api/ingest", secure({ heavy: true }), async (req, res) => {
     if (err instanceof ZodError) return res.status(400).json({ error: err.message });
     const status = err instanceof IngestError ? 400 : 500;
     res.status(status).json({ error: errorMessage(err) });
-  }
-});
-
-app.post("/api/script", secure({ quota: "drafts", heavy: true, check: checkOwnScript }), async (req, res) => {
-  try {
-    const parsed = ScriptGenRequestSchema.parse(req.body);
-    const script = await generateScript(parsed.ingest, parsed.user_context, parsed.format, {
-      targetMinutes: limitedMinutes((res.locals.auth as Auth).role, parsed.target_minutes, VIDEO_FORMATS[parsed.format].defaultMinutes),
-      sourceScript: parsed.source_script?.trim() || undefined,
-    }, parsed.language);
-    res.json(script);
-  } catch (err) {
-    if (err instanceof ZodError) return res.status(400).json({ error: err.message });
-    res.status(500).json({ error: errorMessage(err) });
   }
 });
 
@@ -309,5 +296,6 @@ app.get("/api/projects/:scriptId", secure({ script: "path" }), async (req, res) 
 
 const port = process.env.PORT ? Number(process.env.PORT) : 4000;
 app.listen(port, () => {
+  void warmVerifier();
   console.log(`backend dev server listening on http://localhost:${port}`);
 });

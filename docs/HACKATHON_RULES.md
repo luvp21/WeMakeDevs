@@ -34,7 +34,7 @@ One submission per team, on the hackathon's own submission form, before the dead
 
 ## Track
 
-This project is deployed on AWS: API Gateway and Lambda, S3, ECS Fargate with ECR for rendering, Polly for the fallback voice, all defined in one SAM/CloudFormation template. Script generation (Gemini) and transcription (Whisper via Groq) are not AWS services; both sit behind provider interfaces, with Bedrock and AWS Transcribe implementations available. That makes this a **Ship It** submission, not Build It, and the writeup should say plainly which parts are and are not on AWS.
+This project is deployed on AWS: API Gateway and Lambda, S3, ECS Fargate with ECR for rendering, Polly for the fallback voice, all defined in one SAM/CloudFormation template. Script generation (Gemini) and transcription (Whisper via Groq) are not AWS services; each sits behind one small module so it can be swapped. That makes this a **Ship It** submission, not Build It, and the writeup should say plainly which parts are and are not on AWS.
 
 ## Prizes (context, not the point, but good to know)
 

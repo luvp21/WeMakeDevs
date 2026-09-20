@@ -27,8 +27,7 @@ export type Usage = z.infer<typeof UsageSchema>;
 
 // What a tester may do in total. Rendering is the expensive step (Fargate), so
 // it is strict; drafts and locks only bound the model spend.
-export const LimitsSchema = UsageSchema;
-export type Limits = z.infer<typeof LimitsSchema>;
+export type Limits = Usage;
 
 export const SessionSchema = z.object({
   username: z.string(),
@@ -36,7 +35,7 @@ export const SessionSchema = z.object({
   role: AuthRoleSchema,
   // Present for testers; a judge has no limits.
   usage: UsageSchema.optional(),
-  limits: LimitsSchema.optional(),
+  limits: UsageSchema.optional(),
 });
 export type Session = z.infer<typeof SessionSchema>;
 

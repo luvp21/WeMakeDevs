@@ -68,7 +68,7 @@ Instead of recording, `POST /narrate` has Amazon Polly (Kajal, `en-IN` for Engli
 
 ### Choices worth knowing about
 
-- **Whisper, not AWS Transcribe.** Transcribe's per-segment language ID mangled code-switched Hindi and English. Whisper is faithful when primed with the scene's own script. Retry order for Hinglish: auto-detect + script prompt, English + prompt, Hindi + prompt, English alone. Each attempt is scored by how much of the script it reproduces (threshold 0.5), because Whisper sometimes hallucinates a stock phrase or translates. English scripts start with `language: "en"`. Devanagari output is transliterated to Latin before it is stored.
+- **Whisper, not AWS Transcribe** (the AWS Transcribe and Bedrock code was removed once it was clear neither would be used). Transcribe's per-segment language ID mangled code-switched Hindi and English. Whisper is faithful when primed with the scene's own script. Retry order for Hinglish: auto-detect + script prompt, English + prompt, Hindi + prompt, English alone. Each attempt is scored by how much of the script it reproduces (threshold 0.5), because Whisper sometimes hallucinates a stock phrase or translates. English scripts start with `language: "en"`. Devanagari output is transliterated to Latin before it is stored.
 - **Constant frame rate everywhere.** Sparse still-image video and webcam webm are variable frame rate, and decoders cut such streams off early. Every clip is forced to 30 fps (`tpad` clones, `fps` filters).
 - **First beat starts at 0.** It owns the silence before the first spoken word, so later cuts don't land early by that long.
 - **Demo clips fit their beat.** A longer clip is sped up so all of it fits (squeezed into 85% of the beat, so the result stays on screen); a shorter one holds its last frame.
@@ -79,7 +79,7 @@ Instead of recording, `POST /narrate` has Amazon Polly (Kajal, `en-IN` for Engli
 
 ```
 Browser ──https──> API Gateway HTTP API ──┬─ GET /, /{proxy+}   -> SiteFunction (serves frontend/dist)
-                   (one origin)           └─ /api/*             -> 17 Lambda functions
+                   (one origin)           └─ /api/*             -> one Lambda function per route (20 routes)
                                                                     │
             presigned PUT/GET (recordings, clips, video) ───────────┤
                                                                     ▼
@@ -137,8 +137,8 @@ All defined once as Zod schemas in `shared/src/index.ts`; the API validates requ
 | Variable | Purpose |
 |---|---|
 | `S3_BUCKET`, `AWS_REGION` | storage |
-| `LLM_PROVIDER` (`gemini` default, or `bedrock`), `GEMINI_API_KEY`, `GEMINI_MODEL` | script generation |
-| `STT_PROVIDER` (`groq` default, or `aws`), `GROQ_API_KEY`, `WHISPER_LANGUAGE` | transcription |
+| `GEMINI_API_KEY`, `GEMINI_MODEL` | script generation (Gemini) |
+| `GROQ_API_KEY`, `WHISPER_LANGUAGE` | transcription (Whisper large-v3 via Groq) |
 | `GITHUB_TOKEN` | optional, lifts GitHub's 60 requests an hour |
 | `USAGE_TABLE` | the DynamoDB table of tester usage (`vaani-backend-usage`) |
 | `RENDER_STATE_MACHINE_ARN`, `ALERT_TOPIC_ARN` | set by the stack in Lambda: the render workflow and the alerts topic |

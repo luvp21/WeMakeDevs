@@ -10,7 +10,7 @@ import { runFfmpeg } from "./ffmpeg.js";
 //   the same fix that stopped stills being cut off early (see beatClip.ts).
 // - crop: a centered square, so any camera aspect ratio fills the circle.
 // - geq alpha: a circle mask, opaque inside the radius and clear outside.
-export function faceOverlayFilter(): string {
+function faceOverlayFilter(): string {
   const { x, y, size } = FACE_BUBBLE;
   const mask = `if(lte(hypot(X-W/2,Y-H/2),W/2),255,0)`;
   return (

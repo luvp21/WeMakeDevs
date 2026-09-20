@@ -1,5 +1,5 @@
 import { ArrowRight } from "lucide-react";
-import type { NarrationResult, Script } from "@vaani/shared";
+import { formatDuration, type NarrationResult, type Script } from "@vaani/shared";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Spinner } from "@/components/ui/spinner";
@@ -11,13 +11,6 @@ interface NarrationPanelProps {
   onGenerate: () => void;
   onContinue: () => void;
   generating: boolean;
-}
-
-function formatDuration(ms: number): string {
-  const totalSeconds = Math.round(ms / 1000);
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
 }
 
 export function NarrationPanel({
@@ -47,7 +40,7 @@ export function NarrationPanel({
               <div key={sceneNarration.scene_id} className="flex flex-col gap-1.5">
                 <div className="flex items-center justify-between text-sm">
                   <span className="font-medium">{scene?.title ?? sceneNarration.scene_id}</span>
-                  <span className="text-muted-foreground tabular">{formatDuration(sceneNarration.duration_ms)}</span>
+                  <span className="text-muted-foreground tabular">{formatDuration(sceneNarration.duration_ms / 1000)}</span>
                 </div>
                 <audio controls src={sceneNarration.audio_url} className="w-full" />
               </div>

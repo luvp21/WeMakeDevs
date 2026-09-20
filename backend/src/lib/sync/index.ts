@@ -1,8 +1,6 @@
 import type { Checkpoint, Scene, TranscriptWord } from "@vaani/shared";
 import { hasWordContent, wordsMatch } from "./matches.js";
 
-export { transliterateTranscript, devanagariToLatin } from "./transliterate.js";
-
 // The stall threshold, per docs/SYNC_ALGORITHM.md: "start around 15-20
 // transcript words".
 const DEFAULT_STALL_THRESHOLD = 18;
@@ -13,7 +11,7 @@ interface ScriptWord {
   beatId?: string;
 }
 
-export function tokenizeScene(scene: Scene): ScriptWord[] {
+function tokenizeScene(scene: Scene): ScriptWord[] {
   const words: ScriptWord[] = [];
   for (const beat of scene.beats) {
     const beatWords = beat.text.split(/\s+/).filter(hasWordContent);

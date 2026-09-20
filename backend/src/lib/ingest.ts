@@ -58,7 +58,7 @@ interface GithubTreeEntry {
 
 export class IngestError extends Error {}
 
-export function parseGithubUrl(repoUrl: string): { owner: string; repo: string } {
+function parseGithubUrl(repoUrl: string): { owner: string; repo: string } {
   const cleaned = repoUrl.trim().replace(/\.git$/, "").replace(/\/$/, "");
   const match = cleaned.match(/github\.com[/:]([^/]+)\/([^/]+)$/i);
   if (!match) {

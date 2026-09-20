@@ -17,7 +17,6 @@ import {
   type PlannedScene,
   type Scene,
   type SceneGenResponse,
-  type Script,
   type ScriptLanguage,
   type VideoFormatId,
   type VisualSpec,
@@ -41,7 +40,7 @@ const BEAT_ITEM_SCHEMA = {
     },
     visual_type: {
       type: "string",
-      enum: ["code_highlight", "slide", "diagram", "chart", "ui_demo", "graph"],
+      enum: ["code_highlight", "slide", "diagram", "chart", "ui_demo"],
     },
     file_path: {
       type: "string",
@@ -185,9 +184,6 @@ function buildVisualSpec(raw: RawBeat): VisualSpec {
     case "diagram":
     case "chart":
       return parseStructuredVisual(raw);
-    case "graph":
-      // Legacy HTML diagrams; the model is steered to "diagram" instead.
-      return { visual_type: "graph", html: raw.content ?? "", description: raw.text };
     case "ui_demo":
       return { visual_type: "ui_demo", note: raw.content ?? "" };
   }
@@ -354,10 +350,6 @@ function toBeat(raw: RawBeat, id: string, clean = false): Beat {
   return { id, text: clean ? cleanNarration(raw.text) : raw.text, visual_type: raw.visual_type, visual_spec: buildVisualSpec(raw) };
 }
 
-function scriptWordCount(scenes: { beats: { text: string }[] }[]): number {
-  return scenes.reduce((sum, scene) => sum + scene.beats.reduce((n, b) => n + countWords(b.text), 0), 0);
-}
-
 // Share of the user's words that survive in the generated beats (order-blind,
 // so re-splitting into beats doesn't count against it). Models sometimes
 // "improve" a script they were told to keep; this catches that.
@@ -412,19 +404,6 @@ export function scenesFromText(text: string): Scene[] {
 // -------------------------------------------------------------- public
 
 // Runs `fn` over `items` with at most `limit` in flight, keeping result order.
-async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T, index: number) => Promise<R>): Promise<R[]> {
-  const results: R[] = new Array(items.length);
-  let next = 0;
-  async function worker() {
-    while (next < items.length) {
-      const index = next++;
-      results[index] = await fn(items[index], index);
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
-  return results;
-}
-
 // Splits a user-written script into scenes without asking a model: paragraphs
 // become scenes (or, for one block of text, groups of sentences of about a
 // scene's length). Their words are untouched; each scene's title and visuals
@@ -557,30 +536,6 @@ export async function writePlannedScene(params: {
     if (penalty(retry) < penalty(raw)) raw = retry;
   }
   return { title: raw.title || planned.title, beats: raw.beats.map((b) => toBeat(b, ids.beat(), true)) };
-}
-
-// The whole pipeline in one call (used by /api/script and tests): plan, then
-// write every scene with a few in flight at once. The web app instead calls
-// plan and write-scene separately so it can show progress and fill in scenes
-// as they finish.
-export async function generateScript(
-  ingest: IngestResult,
-  userContext: string,
-  format: VideoFormatId = "code_walkthrough",
-  options: GenerationOptions = {},
-  language: ScriptLanguage = DEFAULT_SCRIPT_LANGUAGE,
-): Promise<Script> {
-  const outline = await planScript(ingest, userContext, format, options, language);
-  const written = await mapWithConcurrency(outline, 3, (_, index) =>
-    writePlannedScene({ ingest, format, language, userContext, outline, index }),
-  );
-  const ids = idGenerator();
-  const scenes: Scene[] = written.map((scene) => ({
-    id: ids.scene(),
-    title: scene.title,
-    beats: scene.beats.map((beat) => ({ ...beat, id: ids.beat() })),
-  }));
-  return { repo_url: ingest.repo_url, user_context: userContext, format, language, scenes };
 }
 
 // Rebuilds one scene (or a single beat) from narration the user edited. The

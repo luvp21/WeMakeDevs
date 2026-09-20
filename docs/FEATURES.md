@@ -8,7 +8,7 @@ Status as of Sept 20, 2026. The must-have and good-to-have split below is the or
 |---|---|---|---|
 | Repo ingest | Accept a GitHub URL, pull the README, package files and a capped sample of source files | Lambda, GitHub tree API + raw files, S3 cache | Done. One API request per repo, 15 minute cache |
 | User context box | Free-text note on what to emphasize (real numbers, audience, purpose) | app | Done. Notes are used as-is, never invented from |
-| Script generation | Scenes broken into beats, each with a planned visual, in English or natural Hinglish | Gemini (Bedrock implemented as an alternative) | Done. Two-stage plan-then-write, length control, spoken style rules |
+| Script generation | Scenes broken into beats, each with a planned visual, in English or natural Hinglish | Gemini (Bedrock is not available on this account) | Done. Two-stage plan-then-write, length control, spoken style rules |
 | Script review and edit | Edit the wording, regenerate a visual or a whole scene from the new text, lock | app + Lambda | Done |
 | Visual generation | Per beat: code highlight, slide, diagram, chart, or product-demo footage | Shiki, shared HTML/CSS, Playwright | Done |
 | Polly fallback narration | AI voice reads the script as a complete backup video | Amazon Polly (Kajal) | Done. Verified end to end; never the primary path |

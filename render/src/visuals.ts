@@ -1,11 +1,11 @@
 import { codeToHtml } from "shiki";
 import {
-  CHROME_HEIGHT,
   FRAME_HEIGHT,
   FRAME_WIDTH,
   chartHtml,
   diagramHtml,
   escapeHtml,
+  findIngestedFile,
   pageHtml,
   placeholderHtml,
   slideHtml,
@@ -19,11 +19,6 @@ import {
 // @vaani/shared so the browser's review page renders exactly the same markup.
 // This file adds only what needs Node: Shiki-highlighted code.
 const CONTEXT_LINES = 5;
-
-function findFileContent(ingest: IngestResult, filePath: string): string | null {
-  const file = [...ingest.sample_files, ...ingest.package_files].find((f) => f.path === filePath);
-  return file?.content ?? null;
-}
 
 // Removes the indentation shared by every non-blank line, so a snippet cut out
 // of deeply nested code sits at the left edge of the code window instead of
@@ -39,7 +34,7 @@ async function codeHighlightHtml(
   ingest: IngestResult,
   chrome: BeatChrome | undefined,
 ): Promise<string> {
-  const content = findFileContent(ingest, spec.file_path);
+  const content = findIngestedFile(ingest, spec.file_path);
   if (!content) {
     return placeholderHtml(`${spec.file_path || "(no file)"} not available`, chrome);
   }
@@ -113,7 +108,6 @@ export async function beatVisualHtml(beat: Beat, ingest: IngestResult, chrome?: 
     case "code_highlight":
       return codeHighlightHtml(spec, ingest, chrome);
     case "slide":
-    case "graph":
       return slideHtml(spec.html, chrome);
     case "diagram":
       return diagramHtml(spec, chrome);
@@ -144,5 +138,4 @@ export function chromeFor(
   };
 }
 
-export { FRAME_WIDTH, FRAME_HEIGHT, CHROME_HEIGHT, escapeHtml };
-export type { VisualSpec };
+export { FRAME_WIDTH, FRAME_HEIGHT };

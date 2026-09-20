@@ -1,6 +1,5 @@
 import {
   IngestResultSchema,
-  ScriptSchema,
   LockedScriptSchema,
   NarrationResultSchema,
   RenderStatusSchema,
@@ -103,19 +102,6 @@ export interface GenerateOptions {
   language?: ScriptLanguage;
   targetMinutes?: number;
   sourceScript?: string;
-}
-
-export function generateScript(
-  ingest: IngestResult,
-  userContext: string,
-  format: VideoFormatId,
-  options: GenerateOptions = {},
-): Promise<Script> {
-  return postJson(
-    "/script",
-    { ingest, user_context: userContext, format, language: options.language, target_minutes: options.targetMinutes, source_script: options.sourceScript },
-    ScriptSchema,
-  );
 }
 
 // Step 1: the outline only (one entry per scene, with a word budget).

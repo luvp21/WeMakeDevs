@@ -5,6 +5,7 @@ import { consume, memoryStore, refund, getUsage } from "./quota.js";
 import { checkJudgeLinkKey, judgeLinkKey } from "./judgeLink.js";
 import { authenticate, canAccess, HttpError, requireJudge } from "./access.js";
 import { createVerifier, sessionExpiry, verifyIdToken } from "./verify.js";
+import { FetchError } from "aws-jwt-verify/error";
 import { hasLimits } from "@vaani/shared";
 import { assertAllowedRedirect, assertPasswordLoginAllowed } from "./cognito.js";
 import { authConfig } from "../../handlers/auth.js";
@@ -132,6 +133,16 @@ test("a team account sees only its own projects (not the judge's view)", () => {
   assert.equal(canAccess(team, "tester1"), false);
   assert.equal(canAccess(team, undefined), false);
   assert.throws(() => requireJudge(team), (e: unknown) => e instanceof HttpError && e.status === 403);
+});
+
+test("failing to fetch the pool's keys is a temporary 503, not 'this token is invalid'", async () => {
+  const unreachable = { verify: async () => Promise.reject(new FetchError("https://cognito-idp.example/jwks.json", "Response time-out")) };
+  await assert.rejects(
+    () => verifyIdToken("any.token.here", unreachable as never),
+    (e: unknown) => e instanceof HttpError && e.status === 503 && /temporarily unavailable/.test(e.message),
+  );
+  const badToken = { verify: async () => Promise.reject(new Error("signature check failed")) };
+  assert.equal(await verifyIdToken("any.token.here", badToken as never), null, "a genuinely bad token is still just refused");
 });
 
 test("a name is optional: the username is used when the token has none", async () => {

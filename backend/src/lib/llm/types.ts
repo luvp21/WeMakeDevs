@@ -1,5 +1,5 @@
-// Provider-agnostic LLM client interface. Gemini is the primary provider;
-// Bedrock is an optional alternative (LLM_PROVIDER=bedrock). See PROGRESS.md.
+// The interface script generation talks to. Gemini implements it (gemini.ts), and a different
+// provider could be added behind getLlmClient() without touching scriptGen.ts.
 
 export interface ToolDefinition {
   name: string;

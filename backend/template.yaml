@@ -11,7 +11,7 @@ Parameters:
     Type: String
     NoEcho: true
     Default: ""
-    Description: Groq API key used by the Whisper STT path (pass with --parameter-overrides GroqApiKey=...); only required when STT_PROVIDER=groq
+    Description: Groq API key used by the Whisper STT path (pass with --parameter-overrides GroqApiKey=...)
   GithubToken:
     Type: String
     NoEcho: true
@@ -328,36 +328,6 @@ Resources:
         EntryPoints:
           - handlers/ingest.ts
 
-  ScriptGenFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      Handler: scriptGen.handler
-      CodeUri: src
-      Timeout: 120
-      Environment:
-        Variables:
-          LLM_PROVIDER: "gemini"
-          GEMINI_API_KEY: !Ref GeminiApiKey
-      Policies:
-        - DynamoDBCrudPolicy:
-            TableName: !Ref UsageTable
-        - S3CrudPolicy:
-            BucketName: !Ref VaaniBucket
-      Events:
-        ScriptGen:
-          Type: HttpApi
-          Properties:
-            ApiId: !Ref VaaniHttpApi
-            Path: /api/script
-            Method: POST
-    Metadata:
-      BuildMethod: esbuild
-      BuildProperties:
-        Minify: true
-        Target: node24
-        EntryPoints:
-          - handlers/scriptGen.ts
-
   ScriptPlanFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -366,7 +336,6 @@ Resources:
       Timeout: 60
       Environment:
         Variables:
-          LLM_PROVIDER: "gemini"
           GEMINI_API_KEY: !Ref GeminiApiKey
       # Reads and writes the account's draft count (quota/<user>.json).
       Policies:
@@ -397,7 +366,6 @@ Resources:
       Timeout: 60
       Environment:
         Variables:
-          LLM_PROVIDER: "gemini"
           GEMINI_API_KEY: !Ref GeminiApiKey
       Policies:
         - DynamoDBCrudPolicy:
@@ -425,7 +393,6 @@ Resources:
       Timeout: 60
       Environment:
         Variables:
-          LLM_PROVIDER: "gemini"
           GEMINI_API_KEY: !Ref GeminiApiKey
       Policies:
         - DynamoDBCrudPolicy:
@@ -792,7 +759,6 @@ Resources:
       Timeout: 180
       Environment:
         Variables:
-          STT_PROVIDER: "groq"
           GROQ_API_KEY: !Ref GroqApiKey
       # The API call hands the work to a background run of this same function.
       # Async runs are not retried: a failure is stored and shown, not repeated.
@@ -807,12 +773,6 @@ Resources:
               Resource: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${AWS::StackName}-TranscribeFunction-*"
         - S3CrudPolicy:
             BucketName: !Ref VaaniBucket
-        - Statement:
-            - Effect: Allow
-              Action:
-                - transcribe:StartTranscriptionJob
-                - transcribe:DeleteTranscriptionJob
-              Resource: !Sub "arn:aws:transcribe:${AWS::Region}:${AWS::AccountId}:transcription-job/vaani-*"
       Events:
         Transcribe:
           Type: HttpApi
@@ -833,18 +793,11 @@ Resources:
     Properties:
       Handler: transcribeStatus.handler
       CodeUri: src
-      Environment:
-        Variables:
-          STT_PROVIDER: "groq"
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref UsageTable
         - S3CrudPolicy:
             BucketName: !Ref VaaniBucket
-        - Statement:
-            - Effect: Allow
-              Action: transcribe:GetTranscriptionJob
-              Resource: !Sub "arn:aws:transcribe:${AWS::Region}:${AWS::AccountId}:transcription-job/vaani-*"
       Events:
         TranscribeStatus:
           Type: HttpApi
@@ -865,18 +818,11 @@ Resources:
     Properties:
       Handler: sync.handler
       CodeUri: src
-      Environment:
-        Variables:
-          STT_PROVIDER: "groq"
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref UsageTable
         - S3CrudPolicy:
             BucketName: !Ref VaaniBucket
-        - Statement:
-            - Effect: Allow
-              Action: transcribe:GetTranscriptionJob
-              Resource: !Sub "arn:aws:transcribe:${AWS::Region}:${AWS::AccountId}:transcription-job/vaani-*"
       Events:
         Sync:
           Type: HttpApi

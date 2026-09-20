@@ -42,9 +42,3 @@ export function syncResultKey(scriptId: string): string {
   return `sync/${scriptId}/result.json`;
 }
 
-export function transcriptionJobName(scriptId: string, sceneId: string): string {
-  // Transcribe job names: alphanumeric + . _ - only, must be unique per
-  // account/region. Deterministic from scriptId+sceneId so status lookups
-  // don't need us to track job names separately.
-  return `vaani-${scriptId}-${sceneId}`;
-}
