@@ -88,6 +88,8 @@ Reset a tester after a demo: `aws dynamodb delete-item --table-name vaani-backen
 
 ## Run it locally
 
+> Working on Vaani on your own laptop (frontend only against the live backend, or the whole stack)? See [`docs/LOCAL_DEV.md`](docs/LOCAL_DEV.md).
+
 Needs Node 24, an AWS account with credentials configured (`aws configure`), and API keys for Gemini and Groq. Rendering locally also needs `ffmpeg` and Playwright's Chromium (`npx playwright install chromium`).
 
 ```bash
@@ -136,7 +138,7 @@ Deploy output echoes parameter overrides, so redact keys before sharing a log.  
 │               template.yaml, site/ (the Lambda that serves the web app)
 ├── frontend/   React 19 + Vite + Tailwind v4 + shadcn: landing page, dashboard, studio
 ├── render/     Fargate worker: Playwright frames, ffmpeg assembly, face bubble, demo clips
-├── docs/       architecture, sync algorithm, features, scope plan, hackathon rules
+├── docs/       architecture, local development, sync algorithm, features, scope plan, hackathon rules
 ├── CLAUDE.md   decisions that were locked on purpose, for the coding agent
 └── PROGRESS.md the build log: what was tried, what broke, what is still open
 ```
