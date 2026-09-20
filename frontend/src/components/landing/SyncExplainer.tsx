@@ -1,121 +1,170 @@
 import { useEffect, useRef, useState } from "react";
-import { motion, useInView, useReducedMotion } from "motion/react";
-import { Check, Pause, Play, RotateCcw } from "lucide-react";
+import { useInView, useReducedMotion } from "motion/react";
+import { Check, Pause, Play, RotateCcw, Volume2, VolumeX } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-// Real data: the script line and what Whisper large-v3 (then normalized to
-// Latin script) heard on a real recorded take. "≈" pairs are fuzzy matches —
-// the transcript spells Hindi words phonetically ("hama" for "hum"), so an
-// exact string compare would stall on nearly every word. Cut times are the
-// take's real checkpoints (backend/src/lib/sync/whisper-real-data.test.ts).
-const SCRIPT = ["Toh", "yahan", "par", "dekho", "hum", "ek", "function", "banaya", "hai", "jo", "API", "se", "data", "fetch", "karta", "hai"];
-const HEARD = ["to", "yahaam", "para", "dekho", "hama", "eka", "function", "banaayaa", "hai", "jo", "API", "se", "data", "fetch", "karataa", "hai"];
-const CUTS: { index: number; time: string; label: string }[] = [
+export const SCRIPT = ["Toh", "yahan", "par", "dekho", "hum", "ek", "function", "banaya", "hai", "jo", "API", "se", "data", "fetch", "karta", "hai"];
+export const HEARD = ["to", "yahaam", "para", "dekho", "hama", "eka", "function", "banaayaa", "hai", "jo", "API", "se", "data", "fetch", "karataa", "hai"];
+export const CUTS = [
   { index: 0, time: "16.16s", label: "Beat 1 starts at “Toh”" },
   { index: 4, time: "18.26s", label: "Beat 2 starts at “hum”" },
   { index: 9, time: "20.66s", label: "Beat 3 starts at “jo”" },
 ];
-const STEP_MS = 620;
 
-function isExact(i: number): boolean {
+export const STEP_MS = 550;
+export const HOLD_TICKS = 4;
+export const TOTAL_DURATION = 5; // seconds
+
+export function isExact(i: number): boolean {
   return SCRIPT[i].toLowerCase() === HEARD[i].toLowerCase();
 }
 
 export function SyncExplainer() {
   const reduce = useReducedMotion();
   const ref = useRef<HTMLDivElement>(null);
-  const inView = useInView(ref, { amount: 0.4 });
+  const progressBarRef = useRef<HTMLDivElement>(null);
+  const inView = useInView(ref, { amount: 0.3 });
+
   const [step, setStep] = useState(reduce ? SCRIPT.length : 0);
   const [playing, setPlaying] = useState(true);
+  const [isHovered, setIsHovered] = useState(false);
+  const [muted, setMuted] = useState(false);
+
+  const isPaused = reduce || !playing || !inView || isHovered;
 
   useEffect(() => {
-    if (reduce || !playing || !inView) return;
-    if (step >= SCRIPT.length) return;
-    const timer = setTimeout(() => setStep((s) => s + 1), STEP_MS);
-    return () => clearTimeout(timer);
-  }, [reduce, playing, inView, step]);
+    if (isPaused) return;
 
-  const done = step >= SCRIPT.length;
-  const reached = CUTS.filter((cut) => step > cut.index);
+    const timer = setInterval(() => {
+      setStep((s) => (s >= SCRIPT.length + HOLD_TICKS ? 0 : s + 1));
+    }, STEP_MS);
+
+    return () => clearInterval(timer);
+  }, [isPaused]);
+
+  const activeStep = Math.min(step, SCRIPT.length);
+  const progress = Math.min(activeStep / SCRIPT.length, 1);
+  const currentSec = Math.min(TOTAL_DURATION, Math.round(progress * TOTAL_DURATION));
+  const reached = CUTS.filter((cut) => activeStep >= cut.index);
 
   function replay() {
     setStep(0);
     setPlaying(true);
   }
 
+  function handleScrub(e: React.MouseEvent<HTMLDivElement>) {
+    if (!progressBarRef.current) return;
+    const rect = progressBarRef.current.getBoundingClientRect();
+    const clickX = e.clientX - rect.left;
+    const fraction = Math.max(0, Math.min(1, clickX / rect.width));
+    const targetStep = Math.round(fraction * SCRIPT.length);
+    setStep(targetStep);
+  }
+
   return (
-    <div ref={ref} className="flex flex-col gap-6 rounded-2xl border bg-card p-4 sm:p-6">
-      <div className="flex flex-col gap-4">
-        <div className="flex flex-col gap-2">
-          <span className="text-xs font-medium text-muted-foreground">Script (what you meant to say)</span>
+    <div
+      ref={ref}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      className="flex flex-col gap-5 rounded-md border border-line-strong bg-card p-5 font-mono shadow-xs sm:p-6 transition-all"
+    >
+      <div className="flex flex-col gap-5">
+        {/* Script Row */}
+        <div className="flex flex-col gap-2.5">
+          <span className="text-xs font-semibold text-muted-foreground">Script (what you meant to say)</span>
           <div className="flex flex-wrap gap-1.5">
             {SCRIPT.map((word, i) => {
-              const matched = i < step;
-              const current = i === step;
+              const matched = i < activeStep;
+              const current = i === activeStep && activeStep < SCRIPT.length;
               const isCut = CUTS.some((cut) => cut.index === i);
               return (
-                <motion.span
+                <button
                   key={i}
-                  layout={false}
+                  type="button"
+                  onClick={() => setStep(i)}
                   className={cn(
-                    "relative rounded-md border px-2 py-1 text-sm transition-colors duration-200",
-                    matched && "border-success/30 bg-success/10 text-success",
-                    current && "border-primary bg-primary/15 text-primary",
-                    !matched && !current && "border-border text-muted-foreground",
+                    "relative rounded-md border px-2.5 py-1 text-xs sm:text-sm transition-all duration-150 text-left cursor-pointer",
+                    matched && "border-success/40 bg-success-soft text-foreground font-normal",
+                    current && "border-primary bg-primary-soft text-primary font-semibold shadow-xs ring-1 ring-primary/30",
+                    !matched && !current && "border-line-strong text-muted-foreground/70 hover:border-line-strong/80 hover:text-foreground"
                   )}
                 >
                   {word}
                   {isCut && (
-                    <span className="absolute -top-1.5 -right-1.5 size-2.5 rounded-full bg-highlight" aria-hidden />
+                    <span
+                      className="absolute -top-1 -right-1 size-2.5 rounded-full bg-highlight shadow-xs ring-2 ring-card"
+                      aria-hidden
+                    />
                   )}
-                </motion.span>
+                </button>
               );
             })}
           </div>
         </div>
 
-        <div className="flex flex-col gap-2">
-          <span className="text-xs font-medium text-muted-foreground">Transcript (what the mic actually heard)</span>
-          <div className="flex flex-wrap gap-1.5 font-mono">
+        {/* Transcript Row */}
+        <div className="flex flex-col gap-2.5 pt-1">
+          <span className="text-xs font-semibold text-muted-foreground">Transcript (what the mic actually heard)</span>
+          <div className="flex flex-wrap gap-1.5">
             {HEARD.map((word, i) => {
-              const matched = i < step;
-              const current = i === step;
+              const matched = i < activeStep;
+              const current = i === activeStep && activeStep < SCRIPT.length;
+              const exactMatch = matched && isExact(i);
+
               return (
-                <span
+                <button
                   key={i}
+                  type="button"
+                  onClick={() => setStep(i)}
                   className={cn(
-                    "flex items-center gap-1 rounded-md border px-2 py-1 text-xs transition-colors duration-200",
-                    matched && "border-success/30 bg-success/10 text-success",
-                    current && "border-highlight bg-highlight/15 text-highlight",
-                    !matched && !current && "border-border text-muted-foreground/70",
+                    "flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs sm:text-sm transition-all duration-150 text-left cursor-pointer",
+                    matched && "border-success/40 bg-success-soft text-foreground font-normal",
+                    current && "border-highlight bg-highlight-soft text-highlight-foreground font-semibold shadow-xs ring-1 ring-highlight/30",
+                    !matched && !current && "border-line-strong text-muted-foreground/60 hover:border-line-strong/80 hover:text-foreground"
                   )}
                 >
-                  {word}
-                  {matched && (isExact(i) ? <Check className="size-3" aria-label="exact match" /> : <span aria-label="fuzzy match">≈</span>)}
-                </span>
+                  <span>{word}</span>
+                  {matched ? (
+                    exactMatch ? (
+                      <Check className="size-3 text-success shrink-0" aria-label="exact match" />
+                    ) : (
+                      <span aria-label="fuzzy match" className="font-semibold text-highlight-foreground shrink-0">
+                        &approx;
+                      </span>
+                    )
+                  ) : exactMatch ? null : (
+                    <span className="text-[10px] text-muted-foreground/40 shrink-0">&approx;</span>
+                  )}
+                </button>
               );
             })}
           </div>
         </div>
       </div>
 
-      <div className="flex flex-col gap-2 rounded-xl bg-background p-4">
-        <span className="text-xs font-medium text-muted-foreground">Cuts found</span>
-        <ul className="flex min-h-[4.5rem] flex-col gap-1.5">
+      {/* Cuts Found Inset Box */}
+      <div className="flex flex-col gap-2.5 rounded-lg border border-line-strong bg-secondary/50 p-4 text-xs sm:text-sm">
+        <span className="font-semibold text-muted-foreground">Cuts found</span>
+        <ul className="flex flex-col gap-2 font-mono">
           {CUTS.map((cut) => {
-            const found = reached.includes(cut);
+            const isFound = reached.includes(cut);
             return (
               <li
                 key={cut.index}
                 className={cn(
-                  "flex items-center justify-between text-sm transition-opacity duration-300",
-                  found ? "opacity-100" : "opacity-25",
+                  "flex items-center justify-between transition-opacity duration-300",
+                  isFound ? "opacity-100 font-semibold text-foreground" : "opacity-30 text-muted-foreground"
                 )}
               >
                 <span>{cut.label}</span>
-                <span className={cn("font-mono tabular", found ? "text-highlight" : "text-muted-foreground")}>
-                  {found ? cut.time : "..."}
+                <span
+                  className={cn(
+                    "tabular font-mono",
+                    isFound ? "text-highlight-foreground font-semibold" : "text-muted-foreground"
+                  )}
+                >
+                  {isFound ? cut.time : ". . ."}
                 </span>
               </li>
             );
@@ -123,21 +172,76 @@ export function SyncExplainer() {
         </ul>
       </div>
 
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-xs text-muted-foreground">
-          A real take. A tick is an exact match, ≈ is a fuzzy one.
+      {/* Caption & Controls */}
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line-strong pt-3.5 text-xs text-muted-foreground">
+        <p className="select-none">
+          A real take. A tick is an exact match, &approx; is a fuzzy one.
         </p>
-        <div className="flex gap-1">
-          {!done && (
-            <Button variant="ghost" size="icon" onClick={() => setPlaying((p) => !p)} aria-label={playing ? "Pause" : "Play"}>
-              {playing ? <Pause /> : <Play />}
-            </Button>
-          )}
-          <Button variant="ghost" size="icon" onClick={replay} aria-label="Replay">
-            <RotateCcw />
+
+        <div className="flex items-center gap-1.5">
+          <Button
+            variant="outline"
+            size="icon-sm"
+            onClick={() => setPlaying((p) => !p)}
+            aria-label={playing ? "Pause" : "Play"}
+            className="border-line-strong hover:bg-accent cursor-pointer"
+          >
+            {playing && !isHovered ? <Pause className="size-3.5" /> : <Play className="size-3.5" />}
+          </Button>
+          <Button
+            variant="outline"
+            size="icon-sm"
+            onClick={replay}
+            aria-label="Replay"
+            className="border-line-strong hover:bg-accent cursor-pointer"
+          >
+            <RotateCcw className="size-3.5" />
           </Button>
         </div>
+      </div>
+
+      {/* Audio Timeline Scrubber Bar */}
+      <div className="flex items-center gap-3 rounded-lg border border-line-strong bg-secondary/60 px-3.5 py-2 font-mono text-xs text-muted-foreground select-none">
+        <button
+          type="button"
+          onClick={() => setPlaying((p) => !p)}
+          className="flex size-6 items-center justify-center rounded text-foreground hover:bg-accent transition-colors cursor-pointer"
+          aria-label={playing ? "Pause timeline" : "Play timeline"}
+        >
+          {playing && !isHovered ? <Pause className="size-3.5" /> : <Play className="size-3.5" />}
+        </button>
+
+        <span className="w-12 tabular text-right">00:00:0{currentSec}</span>
+
+        {/* Progress Track */}
+        <div
+          ref={progressBarRef}
+          onClick={handleScrub}
+          className="group relative flex-1 h-2 rounded-full bg-secondary border border-line-strong cursor-pointer flex items-center"
+          aria-label="Audio timeline progress"
+        >
+          <div
+            className="h-full rounded-full bg-primary transition-all duration-150"
+            style={{ width: `${progress * 100}%` }}
+          />
+          <div
+            className="absolute size-3.5 rounded-full bg-primary border-2 border-background shadow-xs -translate-x-1/2 group-hover:scale-125 transition-transform"
+            style={{ left: `${progress * 100}%` }}
+          />
+        </div>
+
+        <span className="w-12 tabular">00:00:0{TOTAL_DURATION}</span>
+
+        <button
+          type="button"
+          onClick={() => setMuted((m) => !m)}
+          className="flex size-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors cursor-pointer"
+          aria-label={muted ? "Unmute" : "Mute"}
+        >
+          {muted ? <VolumeX className="size-3.5" /> : <Volume2 className="size-3.5" />}
+        </button>
       </div>
     </div>
   );
 }
+

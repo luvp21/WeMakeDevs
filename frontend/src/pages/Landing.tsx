@@ -1,150 +1,127 @@
-import { motion, useReducedMotion } from "motion/react";
+import { useEffect, useState } from "react";
+import { motion, useReducedMotion, useScroll } from "motion/react";
 import { Link } from "react-router";
 import { useAuth } from "@/lib/auth";
-import { ArrowRight, Menu } from "lucide-react";
+import { ArrowRight, Menu, Video, Languages, UserCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Sheet, SheetClose, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Logo } from "@/components/Logo";
+import { GridFrame, Section, Crosshair } from "@/components/landing/frame";
 import { HeroDemo } from "@/components/landing/HeroDemo";
 import { PipelineTabs } from "@/components/landing/PipelineTabs";
 import { SyncExplainer } from "@/components/landing/SyncExplainer";
-
-/*
-  THESIS: the product's one real trick, shown live in the first viewport: a
-  spoken line advances word by word and the visual cuts on the exact word.
-  Refuses the SaaS hero (gradient, feature cards, fake logos and quotes).
-  OWN-WORLD: an editor at night. Blue-slate surfaces, hairline borders, amber
-  marks "the word being spoken", blue is the only action color.
-  STORY: you read your own script aloud; Vaani finds when you said each beat
-  and cuts the video for you. The visitor tries it in the dashboard.
-  FIRST VIEWPORT: nav; left, headline + one primary action; right, the live
-  sync demo at 16:9 with the transcript and waveform under it.
-  FORM: hero + interactive sequence + algorithm explainer + FAQ.
-*/
+import { LanguagesSection } from "@/components/landing/LanguagesSection";
+import { StackMarquee } from "@/components/landing/StackMarquee";
+import { FaqSection } from "@/components/landing/FaqSection";
+import { FooterWord, BackToTop } from "@/components/landing/FooterWord";
 
 const NAV_LINKS = [
   { href: "#how", label: "How it works" },
   { href: "#sync", label: "Sync" },
-  { href: "#hinglish", label: "Hinglish" },
+  { href: "#languages", label: "Languages" },
+  { href: "#stack", label: "Stack" },
   { href: "#faq", label: "FAQ" },
 ];
 
-const HINGLISH_LINES = [
-  "Aaj hum dekh rahe hain Vercel ka super popular package ms, jo time strings aur milliseconds ke beech smooth conversions karta hai.",
-  "Sabse pehle iska main export dekho, function overloading use karke ye single function dono directions handle karta hai.",
-  "Simple si baat hai: agar input string aayi toh parse karega, number aaya toh format karega, warna seedha error throw.",
-];
-const ENGLISH_TERMS = new Set(
-  "super popular package ms time strings milliseconds smooth conversions main export function overloading use single directions handle input string parse number format error throw".split(" "),
-);
-
-const STACK: { part: string; tech: string; note: string }[] = [
-  { part: "Read the repo", tech: "GitHub API", note: "README, package files, sampled source" },
-  { part: "Write the script", tech: "Gemini", note: "Beat-tagged Hinglish with a visual per beat" },
-  { part: "Hear you", tech: "Whisper large-v3", note: "Keeps English terms intact in Hindi speech" },
-  { part: "Match voice to script", tech: "Two-pointer sync", note: "Plain TypeScript, no ML alignment model" },
-  { part: "Cut the video", tech: "Playwright + FFmpeg", note: "Rendered on AWS Fargate, never on Lambda" },
-  { part: "Store and serve", tech: "S3, Lambda, API Gateway", note: "Recordings upload straight from your browser to S3" },
-];
-
-const FAQ: { q: string; a: string }[] = [
-  {
-    q: "Whose voice is in the video?",
-    a: "Yours. Vaani cuts visuals over your own recorded audio. An AI voice (Amazon Polly's Kajal) exists only as a fallback if you can't record.",
-  },
-  {
-    q: "Which repos work?",
-    a: "Any public GitHub repo. Vaani reads the README, package files and a sample of source files, then drafts a script you can edit before recording.",
-  },
-  {
-    q: "What if I stumble or say um?",
-    a: "Retake any scene. And the sync step is built for messy speech: it only moves forward through your script when a word matches, so repeats and fillers don't shift a cut.",
-  },
-  {
-    q: "Where do my recordings go?",
-    a: "Your browser uploads each take directly to an S3 bucket in the AWS account running Vaani. They're used to transcribe and render your video.",
-  },
-  {
-    q: "Which languages does it support?",
-    a: "Two: Hinglish, written the way Indian developers actually talk, and plain English. Pick one before the script is drafted. Other languages aren't supported yet.",
-  },
-  {
-    q: "Is it free?",
-    a: "Vaani is a hackathon project (First Commit, WeMakeDevs x AWS). There's no pricing yet.",
-  },
-];
-
-function HighlightedLine({ text }: { text: string }) {
+function ScrollProgressBar() {
+  const { scrollYProgress } = useScroll();
   return (
-    <p className="text-lg leading-relaxed sm:text-xl">
-      {text.split(" ").map((word, i) => {
-        const clean = word.toLowerCase().replace(/[^a-z]/g, "");
-        return (
-          <span key={i} className={ENGLISH_TERMS.has(clean) ? "text-primary" : undefined}>
-            {word}{" "}
-          </span>
-        );
-      })}
-    </p>
+    <motion.div
+      className="fixed top-0 left-0 right-0 z-50 h-[2px] bg-primary origin-left pointer-events-none"
+      style={{ scaleX: scrollYProgress }}
+    />
   );
 }
 
 function Nav() {
   const { session } = useAuth();
+  const [activeSection, setActiveSection] = useState("");
+
+  useEffect(() => {
+    const sectionIds = ["how", "sync", "languages", "stack", "faq"];
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            setActiveSection(`#${entry.target.id}`);
+          }
+        });
+      },
+      { rootMargin: "-20% 0px -60% 0px" }
+    );
+
+    sectionIds.forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) observer.observe(el);
+    });
+
+    return () => observer.disconnect();
+  }, []);
+
   return (
-    <header className="sticky top-0 z-30 border-b bg-background/80 backdrop-blur">
-      <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4 sm:px-6">
-        <Link to="/" aria-label="Vaani home">
+    <header className="sticky top-0 z-30 w-full border-b border-line-strong bg-background/90 backdrop-blur font-mono">
+      <div className="mx-auto flex h-16 max-w-[1200px] items-center justify-between border-x border-line-strong px-4 sm:px-6">
+        <Link to="/" aria-label="Vaani home" className="flex items-center gap-2">
           <Logo />
         </Link>
+
         <nav className="hidden items-center gap-1 md:flex" aria-label="Sections">
-          {NAV_LINKS.map((link) => (
-            <a
-              key={link.href}
-              href={link.href}
-              className="rounded-md px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
-            >
-              {link.label}
-            </a>
-          ))}
+          {NAV_LINKS.map((link) => {
+            const isActive = activeSection === link.href;
+            return (
+              <a
+                key={link.href}
+                href={link.href}
+                className={`relative px-3 py-1.5 text-xs transition-colors hover:text-foreground ${
+                  isActive ? "text-foreground font-semibold" : "text-muted-foreground"
+                }`}
+              >
+                {link.label}
+                {isActive && (
+                  <span className="absolute bottom-0 left-3 right-3 h-[2px] bg-primary" />
+                )}
+              </a>
+            );
+          })}
         </nav>
+
         <div className="flex items-center gap-2">
           {session ? (
             <>
-              <Button render={<Link to="/app" />} variant="ghost" size="sm" className="hidden sm:inline-flex">
+              <Button render={<Link to="/app" />} variant="ghost" size="sm" className="hidden text-xs sm:inline-flex">
                 Dashboard
               </Button>
-              <Button render={<Link to="/app/studio" />} size="sm">
+              <Button render={<Link to="/app/studio" />} variant="ink" size="sm" className="text-xs">
                 Make a video
               </Button>
             </>
           ) : (
             <>
-              <Button render={<Link to="/sign-in" />} variant="ghost" size="sm" className="hidden sm:inline-flex">
+              <Button render={<Link to="/sign-in" />} variant="ghost" size="sm" className="hidden text-xs sm:inline-flex">
                 Sign in
               </Button>
-              <Button render={<Link to="/sign-in" />} size="sm">
+              <Button render={<Link to="/sign-in" />} variant="ink" size="sm" className="text-xs">
                 Try Vaani
               </Button>
             </>
           )}
+
           <Sheet>
             <SheetTrigger render={<Button variant="ghost" size="icon" className="md:hidden" aria-label="Menu" />}>
-              <Menu />
+              <Menu className="size-4" />
             </SheetTrigger>
-            <SheetContent side="right">
+            <SheetContent side="right" className="font-mono">
               <SheetHeader>
-                <SheetTitle>Vaani</SheetTitle>
+                <SheetTitle className="font-mono text-left">Vaani</SheetTitle>
               </SheetHeader>
-              <div className="flex flex-col gap-1 px-4">
+              <div className="flex flex-col gap-1 px-2 pt-4">
                 {NAV_LINKS.map((link) => (
-                  <SheetClose key={link.href} render={<a href={link.href} className="rounded-md px-3 py-2.5 text-base hover:bg-accent" />}>
+                  <SheetClose key={link.href} render={<a href={link.href} className="rounded-md px-3 py-2 text-sm hover:bg-accent" />}>
                     {link.label}
                   </SheetClose>
                 ))}
                 <SheetClose
-                  render={<Link to={session ? "/app" : "/sign-in"} className="rounded-md px-3 py-2.5 text-base hover:bg-accent" />}
+                  render={<Link to={session ? "/app" : "/sign-in"} className="rounded-md px-3 py-2 text-sm hover:bg-accent" />}
                 >
                   {session ? "Dashboard" : "Sign in"}
                 </SheetClose>
@@ -160,43 +137,84 @@ function Nav() {
 function Hero() {
   const reduce = useReducedMotion();
   const headline = ["Read", "your", "code", "aloud.", "Get", "the", "video."];
+
   return (
-    <section className="relative overflow-hidden">
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-0 opacity-[0.5] [background-image:linear-gradient(to_right,oklch(1_0_0/6%)_1px,transparent_1px),linear-gradient(to_bottom,oklch(1_0_0/6%)_1px,transparent_1px)] [background-size:56px_56px] [mask-image:radial-gradient(ellipse_70%_60%_at_50%_0%,black,transparent)]"
-      />
-      <div className="relative mx-auto grid max-w-6xl items-center gap-12 px-4 py-14 sm:px-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,32rem)] lg:gap-14 lg:py-24">
-        <div className="flex flex-col gap-6">
-          <h1 className="text-5xl leading-[1.04] font-semibold tracking-tight sm:text-6xl lg:text-7xl">
-            {headline.map((word, i) => (
-              <motion.span
-                key={i}
-                className="mr-[0.25em] inline-block"
-                initial={reduce ? false : { opacity: 0, y: 14, filter: "blur(8px)" }}
-                animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-                transition={{ delay: 0.05 + i * 0.07, duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
-              >
-                {word}
-              </motion.span>
-            ))}
-          </h1>
-          <p className="max-w-xl text-lg text-muted-foreground sm:text-xl">
-            Paste a GitHub repo, read the Hinglish script Vaani drafts, and it cuts the code, slides and diagrams in on
-            the exact words you say.
-          </p>
-          <div className="flex flex-wrap items-center gap-3">
-            <Button render={<Link to="/app/studio" />} size="lg" className="h-11 px-5 text-base">
-              Make a video
-              <ArrowRight data-icon="inline-end" />
-            </Button>
-            <Button render={<a href="#sync" />} variant="ghost" size="lg" className="h-11 px-4 text-base">
-              See how it syncs
-            </Button>
+    <section className="relative w-full border-b border-line-strong">
+      <div className="relative mx-auto max-w-[1200px] border-x border-line-strong bg-background">
+        <Crosshair className="-top-1.25 -left-1.25" />
+        <Crosshair className="-top-1.25 -right-1.25" />
+
+        {/* Hero two-column grid */}
+        <div className="grid items-center gap-10 px-4 py-12 sm:px-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,32rem)] lg:gap-12 lg:py-16">
+          <div className="flex flex-col gap-6 font-mono">
+            {/* Pill tag */}
+            <div className="inline-flex w-max items-center gap-2 rounded-full border border-line-strong bg-secondary px-3 py-1 text-xs text-muted-foreground select-none">
+              <span className="size-1.5 rounded-full bg-primary" />
+              Built for First Commit &middot; WeMakeDevs &times; AWS
+            </div>
+
+            {/* Headline */}
+            <h1 className="text-4xl leading-[1.08] font-semibold tracking-tight text-foreground sm:text-5xl lg:text-6xl">
+              {headline.map((word, i) => (
+                <motion.span
+                  key={i}
+                  className="mr-[0.25em] inline-block"
+                  initial={reduce ? false : { opacity: 0, y: 14, filter: "blur(8px)" }}
+                  animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+                  transition={{ delay: 0.05 + i * 0.07, duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
+                >
+                  {word}
+                </motion.span>
+              ))}
+            </h1>
+
+            {/* Subcopy */}
+            <p className="max-w-xl text-sm leading-relaxed text-muted-foreground sm:text-base">
+              Paste a GitHub repo, read the Hinglish script Vaani drafts, and it cuts the code, slides and diagrams in on
+              the exact words you say.
+            </p>
+
+            {/* CTAs */}
+            <div className="flex flex-wrap items-center gap-3 pt-2">
+              <Button render={<Link to="/app/studio" />} variant="ink" size="lg" className="h-10 px-5 text-sm">
+                Make a video
+                <ArrowRight data-icon="inline-end" className="size-4" />
+              </Button>
+              <Button render={<a href="#sync" />} variant="ghost" size="lg" className="h-10 px-4 text-sm border border-line-strong hover:bg-accent">
+                See how it syncs
+              </Button>
+            </div>
+
+            <p className="text-xs text-muted-foreground">Works with any public repo. Nothing to install.</p>
           </div>
-          <p className="text-sm text-muted-foreground">Works with any public repo. Nothing to install.</p>
+
+          <HeroDemo />
         </div>
-        <HeroDemo />
+
+        {/* Stat strip (3 bordered cells across column) */}
+        <div className="grid grid-cols-1 border-t border-line-strong font-mono sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-line-strong">
+          <div className="flex items-center gap-3 p-4">
+            <Video className="size-4 text-primary shrink-0" />
+            <div className="flex flex-col">
+              <span className="text-xs font-semibold text-foreground">5 video formats</span>
+              <span className="text-[11px] text-muted-foreground">Code, Hackathon, Demo, Architecture, Teaser</span>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 p-4">
+            <Languages className="size-4 text-primary shrink-0" />
+            <div className="flex flex-col">
+              <span className="text-xs font-semibold text-foreground">English + Hinglish</span>
+              <span className="text-[11px] text-muted-foreground">Drafted in Latin script, English terms intact</span>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 p-4">
+            <UserCheck className="size-4 text-primary shrink-0" />
+            <div className="flex flex-col">
+              <span className="text-xs font-semibold text-foreground">Your real voice and face</span>
+              <span className="text-[11px] text-muted-foreground">Teleprompter recording, cut on your words</span>
+            </div>
+          </div>
+        </div>
       </div>
     </section>
   );
@@ -204,38 +222,48 @@ function Hero() {
 
 function SectionHeading({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="flex max-w-2xl flex-col gap-3">
-      <h2 className="text-3xl font-semibold tracking-tight sm:text-4xl">{title}</h2>
-      <p className="text-lg text-muted-foreground">{children}</p>
+    <div className="flex max-w-2xl flex-col gap-2 font-mono pb-2">
+      <h2 className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">{title}</h2>
+      <p className="text-sm text-muted-foreground leading-relaxed">{children}</p>
     </div>
   );
 }
 
 export default function Landing() {
   return (
-    <div className="min-h-screen scroll-smooth">
+    <GridFrame>
+      <ScrollProgressBar />
       <Nav />
       <main>
         <Hero />
 
-        <section id="how" className="scroll-mt-16 border-t">
-          <div className="mx-auto flex max-w-6xl flex-col gap-10 px-4 py-20 sm:px-6">
+        {/* 02 / How it works */}
+        <Section id="how" label="02 / How it works">
+          <div className="flex flex-col gap-8 px-4 py-12 sm:px-6 sm:py-16">
             <SectionHeading title="From repo to finished video in five steps">
               You supply the one thing software can't fake: your voice, reading it your way.
             </SectionHeading>
             <PipelineTabs />
           </div>
-        </section>
+        </Section>
 
-        <section id="sync" className="scroll-mt-16 border-t bg-sidebar">
-          <div className="mx-auto grid max-w-6xl items-center gap-12 px-4 py-20 sm:px-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,34rem)] lg:gap-16">
-            <div className="flex flex-col gap-5">
-              <h2 className="text-3xl font-semibold tracking-tight sm:text-4xl">The cut lands on the word you said</h2>
-              <p className="text-lg text-muted-foreground">
+        {/* 03 / Sync */}
+        <Section id="sync" label="03 / Sync">
+          <div className="grid gap-10 px-4 py-12 sm:px-6 sm:py-16 lg:grid-cols-[minmax(0,1fr)_minmax(0,34rem)] lg:gap-14">
+            <div className="flex flex-col gap-4 font-mono">
+              <div className="inline-flex w-max items-center gap-1.5 rounded border border-line-strong bg-secondary px-2.5 py-1 text-[11px] text-muted-foreground">
+                <span className="size-1.5 rounded-full bg-primary" />
+                Two pointers &middot; plain TypeScript &middot; no ML alignment model
+              </div>
+
+              <h2 className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
+                The cut lands on the word you said
+              </h2>
+              <p className="text-sm leading-relaxed text-muted-foreground">
                 Speech-to-text is messy. Your script isn't. Vaani walks both side by side and only moves the script
                 forward when a word matches, so a stutter or a filler can't drag a cut off target.
               </p>
-              <p className="text-muted-foreground">
+              <p className="text-sm leading-relaxed text-muted-foreground">
                 Hindi words come back spelled phonetically, so matching is fuzzy on purpose. And the engine matters: on
                 one test sentence AWS Transcribe heard "async function" as "tracing function". Whisper large-v3 kept the
                 English terms intact, which is why Vaani uses it.
@@ -243,80 +271,56 @@ export default function Landing() {
             </div>
             <SyncExplainer />
           </div>
-        </section>
+        </Section>
 
-        <section id="hinglish" className="scroll-mt-16 border-t">
-          <div className="mx-auto grid max-w-6xl gap-12 px-4 py-20 sm:px-6 lg:grid-cols-[minmax(0,26rem)_minmax(0,1fr)] lg:gap-16">
+        {/* 04 / Languages */}
+        <Section id="languages" label="04 / Languages">
+          <div className="flex flex-col gap-8 px-4 py-12 sm:px-6 sm:py-16">
             <SectionHeading title="Written the way you actually talk">
               Scripts come out in Hinglish, not stiff translated Hindi. English terms stay as they are, so you never
               stumble over a word you'd never say in Hindi.
             </SectionHeading>
-            <div className="flex flex-col gap-6 rounded-2xl border bg-card p-6 sm:p-8">
-              {HINGLISH_LINES.map((line) => (
-                <HighlightedLine key={line} text={line} />
-              ))}
-              <p className="text-xs text-muted-foreground">
-                Drafted from the vercel/ms repo. <span className="text-primary">Blue</span> is English.
-              </p>
-            </div>
+            <LanguagesSection />
           </div>
-        </section>
+        </Section>
 
-        <section id="stack" className="scroll-mt-16 border-t bg-sidebar">
-          <div className="mx-auto flex max-w-6xl flex-col gap-10 px-4 py-20 sm:px-6">
+        {/* 05 / Stack */}
+        <Section id="stack" label="05 / Stack">
+          <div className="flex flex-col gap-8 px-4 py-12 sm:px-6 sm:py-16">
             <SectionHeading title="What's under the hood">
               Small parts, each doing one job. Deployed on AWS.
             </SectionHeading>
-            <dl className="grid divide-y rounded-2xl border bg-card md:grid-cols-2 md:divide-y-0">
-              {STACK.map((row, i) => (
-                <div
-                  key={row.part}
-                  className={
-                    "flex flex-col gap-1 p-5 md:min-h-28 " +
-                    (i >= 2 ? "md:border-t " : "") +
-                    (i % 2 === 0 ? "md:border-r" : "")
-                  }
-                >
-                  <dt className="text-sm text-muted-foreground">{row.part}</dt>
-                  <dd className="text-lg font-medium">{row.tech}</dd>
-                  <dd className="text-sm text-muted-foreground">{row.note}</dd>
-                </div>
-              ))}
-            </dl>
+            <StackMarquee />
           </div>
-        </section>
+        </Section>
 
-        <section id="faq" className="scroll-mt-16 border-t">
-          <div className="mx-auto grid max-w-6xl gap-10 px-4 py-20 sm:px-6 lg:grid-cols-[minmax(0,20rem)_minmax(0,1fr)] lg:gap-16">
-            <h2 className="text-3xl font-semibold tracking-tight sm:text-4xl">Questions</h2>
-            <Accordion className="flex flex-col">
-              {FAQ.map((item) => (
-                <AccordionItem key={item.q} value={item.q} className="border-b">
-                  <AccordionTrigger className="py-4 text-base hover:no-underline">{item.q}</AccordionTrigger>
-                  <AccordionContent className="max-w-2xl text-base text-muted-foreground">{item.a}</AccordionContent>
-                </AccordionItem>
-              ))}
-            </Accordion>
+        {/* 06 / Questions */}
+        <Section id="faq" label="06 / Questions">
+          <div className="px-4 py-12 sm:px-6 sm:py-16">
+            <FaqSection />
           </div>
-        </section>
+        </Section>
 
-        <section className="border-t bg-sidebar">
-          <div className="mx-auto flex max-w-6xl flex-col items-start gap-6 px-4 py-20 sm:px-6">
-            <h2 className="max-w-2xl text-4xl font-semibold tracking-tight sm:text-5xl">
+        {/* 07 / CTA Section */}
+        <Section label="07 / CTA">
+          <div className="flex flex-col items-start gap-6 px-4 py-16 sm:px-6 sm:py-20 font-mono">
+            <h2 className="max-w-2xl text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
               Your next code walkthrough is one read-through away.
             </h2>
-            <Button render={<Link to="/app/studio" />} size="lg" className="h-11 px-5 text-base">
+            <Button render={<Link to="/app/studio" />} variant="ink" size="lg" className="h-11 px-6 text-base">
               Make a video
-              <ArrowRight data-icon="inline-end" />
+              <ArrowRight data-icon="inline-end" className="size-4" />
             </Button>
+            <p className="text-xs text-muted-foreground">Works with any public repo. Nothing to install.</p>
           </div>
-        </section>
+        </Section>
       </main>
 
-      <footer className="border-t">
-        <div className="mx-auto flex max-w-6xl flex-col items-start justify-between gap-4 px-4 py-8 text-sm text-muted-foreground sm:flex-row sm:items-center sm:px-6">
+      {/* Footer bar */}
+      <footer className="w-full border-t border-line-strong bg-background font-mono">
+        <div className="mx-auto flex max-w-[1200px] flex-col items-start justify-between gap-4 border-x border-line-strong px-4 py-8 text-xs text-muted-foreground sm:flex-row sm:items-center sm:px-6">
           <Logo />
-          <p>Built for the First Commit hackathon, WeMakeDevs x AWS.</p>
+          <p className="text-center">Built for the First Commit hackathon, WeMakeDevs &times; AWS.</p>
           <nav className="flex gap-4" aria-label="Footer">
             <Link to="/app" className="hover:text-foreground">
               Dashboard
@@ -324,9 +328,25 @@ export default function Landing() {
             <a href="#faq" className="hover:text-foreground">
               FAQ
             </a>
+            {import.meta.env.VITE_GITHUB_URL && (
+              <a href={import.meta.env.VITE_GITHUB_URL} target="_blank" rel="noreferrer" className="hover:text-foreground">
+                GitHub ↗
+              </a>
+            )}
           </nav>
         </div>
+
+        <div className="mx-auto flex max-w-[1200px] border-x border-t border-line-strong px-4 py-3 text-[11px] text-muted-foreground sm:px-6">
+          &copy; 2026 Vaani &middot; Team cosmosapiens
+        </div>
+
+        {/* Bitmap Footer Word animation */}
+        <div className="mx-auto max-w-[1200px] border-x border-line-strong">
+          <FooterWord />
+        </div>
       </footer>
-    </div>
+
+      <BackToTop />
+    </GridFrame>
   );
 }
