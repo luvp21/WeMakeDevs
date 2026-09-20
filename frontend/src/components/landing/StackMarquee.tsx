@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useReducedMotion } from "motion/react";
 import { GitBranch, ScrollText, Mic, AudioLines, Clapperboard, Database, Cpu, Activity, Volume2, Layers, Code, HardDrive } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { CornerMarks } from "@/components/ui/corner-marks";
 
 interface StackCardItem {
   part: string;
@@ -36,7 +37,7 @@ function MarqueeCard({ item }: { item: StackCardItem }) {
     <div
       tabIndex={0}
       className={cn(
-        "group relative flex h-36 w-80 shrink-0 flex-col justify-between gap-3 rounded-md border border-line-strong bg-card p-4 font-mono transition-colors duration-200 cursor-default select-none focus-visible:outline-2 focus-visible:outline-ring",
+        "group group/box relative flex h-36 w-80 shrink-0 flex-col justify-between gap-3 rounded-md border border-line-strong bg-card p-4 font-mono transition-colors duration-200 cursor-default select-none focus-visible:outline-2 focus-visible:outline-ring",
         "hover:border-primary hover:shadow-md"
       )}
     >
@@ -65,6 +66,7 @@ function MarqueeCard({ item }: { item: StackCardItem }) {
           </span>
         </div>
       </div>
+      <CornerMarks hover />
     </div>
   );
 }

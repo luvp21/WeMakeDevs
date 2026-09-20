@@ -1275,3 +1275,12 @@ Notes:
   `CLAUDE.md` (decision 10, themes). `docs/HACKATHON_RULES.md` and `docs/SYNC_ALGORITHM.md` needed
   no change. Still open before 8 PM: the demo video, the writeup, making the repo public, the
   submission, confirming the SNS alert email, rotating the judge link right before submitting.
+- **Landing polish and grid marks (Sept 20, about 6:45 PM).** The page column is 1480px instead of
+  1200px (smaller side gaps on wide screens; the footer word scales up at 2xl so the gap between
+  "Vaani" and the Devanagari word stays small), section labels ("02 / How it works" and so on) are
+  16px on a 48px strip, and the "+" crosshairs are drawn from two 1px lines placed from the real
+  border geometry: measured 0px off the line intersections on both axes, hero included. New shared
+  `components/ui/corner-marks.tsx`: L-shaped corner brackets, always on for the main panels (hero
+  card, How it works, Sync, FAQ list, dashboard progress panel, Studio stepper, the summary card)
+  and on hover or focus for the stack cards, dashboard stat tiles and project cards. Frontend
+  only; redeployed with a site rebuild, no image rebuild.

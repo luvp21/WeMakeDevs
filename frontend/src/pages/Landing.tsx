@@ -58,7 +58,7 @@ function Nav() {
 
   return (
     <header className="sticky top-0 z-30 w-full border-b border-line-strong bg-background/90 backdrop-blur font-mono">
-      <div className="mx-auto flex h-16 max-w-[1200px] items-center justify-between border-x border-line-strong px-4 sm:px-6">
+      <div className="mx-auto flex h-16 max-w-[1480px] items-center justify-between border-x border-line-strong px-4 sm:px-6">
         <Link to="/" aria-label="Vaani home" className="flex items-center gap-2">
           <Logo />
         </Link>
@@ -138,9 +138,9 @@ function Hero() {
 
   return (
     <section className="relative w-full border-b border-line-strong">
-      <div className="relative mx-auto max-w-[1200px] border-x border-line-strong bg-background">
-        <Crosshair className="-top-1.25 -left-1.25" />
-        <Crosshair className="-top-1.25 -right-1.25" />
+      <div className="relative mx-auto max-w-[1480px] border-x border-line-strong bg-background">
+        <Crosshair className="-top-[6px] -left-[6px]" />
+        <Crosshair className="-top-[6px] -right-[6px]" />
 
         {/* Hero two-column grid */}
         <div className="grid items-center gap-10 px-4 py-12 sm:px-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,32rem)] lg:gap-12 lg:py-16">
@@ -294,7 +294,7 @@ export default function Landing() {
 
       {/* Footer bar */}
       <footer className="w-full border-t border-line-strong bg-background font-mono">
-        <div className="mx-auto flex max-w-[1200px] flex-col items-start justify-between gap-4 border-x border-line-strong px-4 py-8 text-xs text-muted-foreground sm:flex-row sm:items-center sm:px-6">
+        <div className="mx-auto flex max-w-[1480px] flex-col items-start justify-between gap-4 border-x border-line-strong px-4 py-8 text-xs text-muted-foreground sm:flex-row sm:items-center sm:px-6">
           <Logo />
           <nav className="flex gap-4" aria-label="Footer">
             <Link to="/app" className="hover:text-foreground">
@@ -312,7 +312,7 @@ export default function Landing() {
         </div>
 
         {/* Bitmap word, with the copyright line running full width underneath */}
-        <div className="mx-auto max-w-[1200px] border-x border-line-strong">
+        <div className="mx-auto max-w-[1480px] border-x border-line-strong">
           <FooterWord />
         </div>
         <div className="w-full border-t border-line-strong px-4 py-3 text-[11px] text-muted-foreground sm:px-6">

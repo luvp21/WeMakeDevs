@@ -3,6 +3,7 @@ import { useInView, useReducedMotion } from "motion/react";
 import { Check, Pause, Play, RotateCcw, Volume2, VolumeX } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { CornerMarks } from "@/components/ui/corner-marks";
 
 export const SCRIPT = ["Toh", "yahan", "par", "dekho", "hum", "ek", "function", "banaya", "hai", "jo", "API", "se", "data", "fetch", "karta", "hai"];
 export const HEARD = ["to", "yahaam", "para", "dekho", "hama", "eka", "function", "banaayaa", "hai", "jo", "API", "se", "data", "fetch", "karataa", "hai"];
@@ -70,8 +71,9 @@ export function SyncExplainer() {
       ref={ref}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
-      className="flex w-full flex-col gap-5 rounded-md border border-line-strong bg-card p-5 font-mono shadow-xs sm:p-6"
+      className="relative flex w-full flex-col gap-5 rounded-md border border-line-strong bg-card p-5 font-mono shadow-xs sm:p-6"
     >
+      <CornerMarks />
       <div className="flex flex-col gap-5">
         {/* Script Row */}
         <div className="flex flex-col gap-2.5">

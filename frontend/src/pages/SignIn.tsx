@@ -61,7 +61,7 @@ export default function SignIn() {
 
   return (
     <GridFrame>
-      <div className="mx-auto flex min-h-svh max-w-[1200px] flex-col items-center justify-center gap-8 border-x border-line-strong bg-background px-4 py-10 font-mono">
+      <div className="mx-auto flex min-h-svh max-w-[1480px] flex-col items-center justify-center gap-8 border-x border-line-strong bg-background px-4 py-10 font-mono">
         <Logo />
         <Card className="w-full max-w-md border-line-strong shadow-xs">
           <CardHeader>

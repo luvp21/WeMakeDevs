@@ -5,6 +5,7 @@ import {
 } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
+import { CornerMarks } from "@/components/ui/corner-marks";
 
 interface PipelineStep {
   id: string;
@@ -218,8 +219,9 @@ export function PipelineTabs() {
         setIsHovered(false);
         if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
       }}
-      className="flex flex-col border border-line-strong bg-card shadow-xs"
+      className="relative flex flex-col border border-line-strong bg-card shadow-xs"
     >
+      <CornerMarks />
       <Tabs value={currentStep.id} onValueChange={(val) => {
         const idx = STEPS.findIndex(s => s.id === val);
         if (idx !== -1) handleTabClick(idx);

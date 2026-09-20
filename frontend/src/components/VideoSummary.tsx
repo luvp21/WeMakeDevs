@@ -3,6 +3,7 @@ import { MAX_VIDEO_MINUTES, SCRIPT_LANGUAGES, VIDEO_FORMATS, VIDEO_THEMES, wordB
 import type { ScriptLanguage, VideoFormatId, VideoTheme } from "@vaani/shared";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { CornerMarks } from "@/components/ui/corner-marks";
 
 interface VideoSummaryProps {
   format: VideoFormatId;
@@ -30,7 +31,8 @@ export function VideoSummary({ format, language, theme, minutes, ownScriptWords,
   const f = VIDEO_FORMATS[format];
   const hasOwnScript = ownScriptWords > 0;
   return (
-    <Card className="gap-4 border border-line-strong p-4 shadow-xs">
+    <Card className="relative gap-4 border border-line-strong p-4 shadow-xs">
+      <CornerMarks inside />
       <div className="flex flex-col gap-0.5">
         <h2 className="font-mono text-sm font-semibold">Your video</h2>
         <p className="font-mono text-xs text-muted-foreground">{f.tagline}</p>

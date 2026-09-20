@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { CornerMarks } from "@/components/ui/corner-marks";
 
 export interface FaqItem {
   id: string;
@@ -183,8 +184,9 @@ export function FaqSection() {
           <Accordion
             value={openValues}
             onValueChange={(val) => setOpenValues(Array.isArray(val) ? val : [val])}
-            className="flex flex-col border border-line-strong bg-card divide-y divide-line-strong shadow-xs"
+            className="relative flex flex-col border border-line-strong bg-card divide-y divide-line-strong shadow-xs"
           >
+            <CornerMarks />
             {filtered.map((item) => {
               const isOpen = openValues.includes(item.id);
               return (

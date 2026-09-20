@@ -14,6 +14,7 @@ import { WatchDialog } from "@/components/app/WatchDialog";
 import { useAuth } from "@/lib/auth";
 import { STAGE_ACTION, STAGE_STEPS_DONE, nextStepText, newestFirst, repoParts } from "@/lib/stage";
 import * as api from "@/lib/api";
+import { CornerMarks } from "@/components/ui/corner-marks";
 
 type Filter = "all" | "progress" | "done";
 const POLL_MS = 5000;
@@ -34,7 +35,8 @@ function matches(filter: Filter, stage: ProjectStage): boolean {
 function FocusPanel({ project, isJudge, onWatch }: { project: ProjectSummary | null; isJudge: boolean; onWatch: (p: ProjectSummary) => void }) {
   const studioPath = project ? `/app/studio/${project.script_id}` : "/app/studio";
   return (
-    <Card className="gap-0 overflow-hidden border border-line-strong py-0 shadow-xs">
+    <Card className="relative gap-0 overflow-hidden border border-line-strong py-0 shadow-xs">
+      <CornerMarks inside />
       <div className="border-b border-line-strong px-4 py-4 sm:px-5">
         <ProjectStepper labels done={project ? STAGE_STEPS_DONE[project.stage] : 0} failed={project?.stage === "error"} />
       </div>
@@ -81,7 +83,8 @@ function FocusPanel({ project, isJudge, onWatch }: { project: ProjectSummary | n
 
 function Stat({ label, value, note }: { label: string; value: string; note?: string }) {
   return (
-    <Card className="gap-1 border border-line-strong px-4 py-3 shadow-xs">
+    <Card className="group/box relative gap-1 border border-line-strong px-4 py-3 shadow-xs">
+      <CornerMarks hover inside />
       <span className="font-mono text-xs text-muted-foreground">{label}</span>
       <span className="font-mono text-2xl font-semibold tabular">{value}</span>
       {note && <span className="font-mono text-xs text-muted-foreground">{note}</span>}

@@ -1,6 +1,7 @@
 import { AudioLines, Check, Clapperboard, GitBranch, Mic, ScrollText, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { CornerMarks } from "@/components/ui/corner-marks";
 
 export type StepId = "repo" | "script" | "record" | "sync" | "video";
 
@@ -96,7 +97,8 @@ function StepButton({
 // on the dashboard, but each step can be opened once it is reachable.
 export function Stepper({ steps, active, onSelect }: StepperProps) {
   return (
-    <nav aria-label="Progress" className="rounded-xl border border-line-strong bg-card p-1.5 shadow-xs">
+    <nav aria-label="Progress" className="relative rounded-xl border border-line-strong bg-card p-1.5 shadow-xs">
+      <CornerMarks />
       <ol className="grid grid-cols-5 gap-1 sm:gap-2">
         {steps.map((step, index) => (
           <li key={step.id} className="min-w-0">

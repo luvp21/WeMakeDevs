@@ -6,7 +6,7 @@ import { GridFrame } from "@/components/landing/frame";
 export default function NotFound() {
   return (
     <GridFrame>
-      <div className="mx-auto flex min-h-screen max-w-[1200px] flex-col items-center justify-center gap-6 border-x border-line-strong bg-background px-4 text-center font-mono">
+      <div className="mx-auto flex min-h-screen max-w-[1480px] flex-col items-center justify-center gap-6 border-x border-line-strong bg-background px-4 text-center font-mono">
         <Logo />
         <div className="flex flex-col gap-2">
           <h1 className="text-3xl font-semibold tracking-tight text-foreground">This page doesn't exist</h1>

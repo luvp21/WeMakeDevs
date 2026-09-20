@@ -9,6 +9,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { ProjectStepper } from "@/components/app/ProjectStepper";
 import { cn } from "@/lib/utils";
 import { STAGE_ACTION, STAGE_LABEL, STAGE_STEPS_DONE, nextStepText, relativeTime, repoParts } from "@/lib/stage";
+import { CornerMarks } from "@/components/ui/corner-marks";
 
 export function StageBadge({ stage }: { stage: ProjectStage }) {
   return (
@@ -56,7 +57,8 @@ export function ProjectCard({ project, showOwner, onCopyLink, onWatch }: Project
   const studioPath = `/app/studio/${project.script_id}`;
   const isDone = project.stage === "done";
   return (
-    <Card className="gap-4 border border-line-strong p-4 shadow-xs transition-colors hover:border-primary/50">
+    <Card className="group/box relative gap-4 border border-line-strong p-4 shadow-xs transition-colors hover:border-primary/50">
+      <CornerMarks hover inside />
       <div className="flex items-start gap-3">
         <RepoAvatar owner={owner} name={name} />
         <div className="flex min-w-0 flex-1 flex-col">

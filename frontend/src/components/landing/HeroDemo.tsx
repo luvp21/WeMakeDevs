@@ -4,6 +4,7 @@ import { Pause, Play } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { VISUALS } from "./beat-visuals";
 import { Waveform } from "./Waveform";
+import { CornerMarks } from "@/components/ui/corner-marks";
 
 export const WORDS = [
   "Toh", "yahan", "par", "dekho", "hum", "ek", "function", "banaya",
@@ -63,8 +64,9 @@ export function HeroDemo() {
         ref={ref}
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
-        className="overflow-hidden rounded-md border border-line-strong bg-card shadow-xs transition-shadow hover:shadow-md"
+        className="relative overflow-hidden rounded-md border border-line-strong bg-card shadow-xs transition-shadow hover:shadow-md"
       >
+        <CornerMarks inside />
         {/* Header bar */}
         <div className="flex items-center justify-between border-b border-line-strong px-4 py-2 text-xs text-muted-foreground">
           <span className="flex items-center gap-2 font-mono">
