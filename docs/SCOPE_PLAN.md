@@ -1,6 +1,6 @@
 # Scope plan
 
-**Status, Sunday Sept 20 (morning).** Every must-have is built and deployed: the whole pipeline runs on the live app with a real recording, and the Polly fallback also works. Remaining today: a real-webcam test on the live link, the demo video, the writeup, making the repo public and submitting. `PROGRESS.md` has the detailed log. The plan below is the original one, with what is done ticked. Where it changed: the LLM is Gemini and transcription is Whisper (not Bedrock and Transcribe), there is no Step Functions state machine, and screen recording became one silent clip per demo step.
+**Status, Sunday Sept 20 (morning).** Every must-have is built and deployed: the whole pipeline runs on the live app with a real recording, and the Polly fallback also works. Remaining today: a real-webcam test on the live link, the demo video, the writeup, making the repo public and submitting. `PROGRESS.md` has the detailed log. The plan below is the original one, with what is done ticked. Where it changed: the LLM is Gemini and transcription is Whisper (not Bedrock and Transcribe), the only Step Functions state machine is the render workflow, and screen recording became one silent clip per demo step.
 
 Deadline: **Sunday, Sept 20, 8:00 PM IST**, submission form on the hackathon's own page. No live demo — judges only see what's in the submission, so the demo video and the writeup matter as much as the code.
 

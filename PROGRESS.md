@@ -1039,6 +1039,53 @@ Notes:
   `CLAUDE.md` (decisions 6 to 8 and a "where things stand" section) and `backend/.env.example`
   (RENDER_MODE, us-east-1) corrected. Still to write: the submission writeup.
 
+- **Gated access for the blog (Sept 20).** Two shared tester accounts and one private judge
+  account, no sign-up. Testers get 5 drafts, 3 locks and ONE render in total (strict, the user's
+  choice); the judge is unlimited and sees every project. Design decisions: built-in accounts
+  (salted scrypt hashes in `AUTH_ACCOUNTS`, HMAC-SHA256 session tokens, tester 6h / judge 24h)
+  rather than Cognito, on this account's already-restricted CloudFront lesson; one deployment, two
+  entry pages: `/` is the tester sign-in (no landing page), `/judge` is the private judge sign-in
+  and shows the landing page and a dashboard with a "Made by" column. All access is enforced on the
+  server by one `guard()` (sign-in, then project ownership, then quota) shared by every Lambda
+  route and the local server; a project that isn't yours is a 404, the same as a missing one; a
+  quota spent by a call that then fails on our side is given back. Projects carry an `owner`;
+  older ones have none and are the judge's only. Frontend: `AuthProvider`, `SignIn`, `Home`,
+  `RequireAuth`, account chip with "1 video left" in the sidebar. Verified with curl locally and
+  live (wrong password 401, isolation 404s, judge sees legacy project, lock counts, tester on the
+  judge page refused) and in a real browser. **Found on the way**: SAM's command line stripped the
+  quotes from the JSON accounts parameter (live login answered 500); accounts are now base64.
+  Test data was cleaned up afterwards. Suite 63.
+  **Then: the judge has no password to be given, only a link.** Added a private judge link,
+  `/j/<key>`: `POST /api/auth/judge-link` checks the key (an HMAC of `AUTH_SECRET`, so nothing
+  new to store; rotate the secret to revoke) and returns a 72h judge session; the page then
+  removes the key from the URL, and every page sends `Referrer-Policy: no-referrer`. Same generic
+  refusal for a wrong, short or missing key. `backend/scripts/judge-link.mjs <site> --save` writes
+  the link to `backend/.accounts.txt` without printing it. Tested locally and live (right key 200,
+  wrong 401, an earlier-displayed key dead after rotating `AUTH_SECRET` and redeploying), and in a
+  real browser (link opens the landing page as the judge, bad link shows "This link isn't
+  valid"). `/judge` password sign-in stays as a backup. Suite 66. Still open: sharing a tester account means
+  sharing its one project; no reset UI (`aws s3 rm s3://<bucket>/quota/<user>.json`).
+
+- **More of the Ship It table, all live (Sept 20).** The user asked to use other AWS services that
+  were available and easy. Checked first: every service answered a read call, but read is not
+  create (CloudFront answered reads and still refused to create), so each was proven by creating
+  it. All three worked. (1) **DynamoDB** (`<stack>-usage`, on demand): testers' usage moved from an
+  S3 read-modify-write file to atomic conditional updates. Live concurrency test: 8 simultaneous
+  lock requests against a limit of 3 gave exactly 3 x 200 and 5 x 403. (2) **Step Functions**
+  (`backend/statemachine/render.asl.json`): `ecs:runTask.sync` with a 20 minute timeout and a
+  catch into `RenderFailedFunction`, which marks a stuck render failed, gives a tester their
+  render back, adds "It didn't use up your one video" to the message, and publishes to SNS.
+  Live: happy path SUCCEEDED (113s render); failure path (a project with no recordings)
+  FAILED with the tester's usage going 1 -> 0. This replaces "a failed render isn't refunded".
+  Found and fixed: the error shown in the app included an AWS role ARN (the worker's raw S3
+  AccessDenied text), so the worker now shows AWS and ffmpeg errors as "The render failed on our
+  side." and keeps the detail in logs and the alert. Fargate image rebuilt and pushed
+  (10:34 IST). (3) **SNS + CloudWatch**: topic `<stack>-alerts`, alarms `render-failed`
+  (ExecutionsFailed) and `api-5xx` (5 in 5 minutes); email subscription is the optional
+  `AlertEmail` parameter (empty until an address is given; AWS then emails a confirmation link).
+  Suite 72. Left out on purpose: Cognito (would replace the sign-in just built; decision pending),
+  SageMaker/Bedrock (not available here), CloudFront (blocked).
+
 ## Sunday, Sept 20
 
 - [ ] Sync algorithm wired to a real recorded scene

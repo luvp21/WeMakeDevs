@@ -3,9 +3,10 @@ import { openSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ECSClient, RunTaskCommand } from "@aws-sdk/client-ecs";
+import { SFNClient, StartExecutionCommand } from "@aws-sdk/client-sfn";
+import type { AuthRole } from "@vaani/shared";
 
-const client = new ECSClient({});
+const sfn = new SFNClient({});
 
 function requireEnv(name: string): string {
   const value = process.env[name];
@@ -13,44 +14,27 @@ function requireEnv(name: string): string {
   return value;
 }
 
-// Kicks off a one-off Fargate task (not a long-running ECS service — we pay
-// only for the render's actual runtime, per CLAUDE.md #6's "not Lambda"
-// but still serverless). The task writes its own progress to S3 as it runs.
-export async function triggerRenderTask(scriptId: string): Promise<void> {
+export interface RenderRequester {
+  owner: string;
+  role: AuthRole;
+}
+
+// Starts the render workflow (a Step Functions state machine): it runs the render
+// on Fargate (never Lambda, CLAUDE.md #6), waits for it, and if it fails or times
+// out marks the render failed, gives a tester their render back and raises an
+// alert. The worker writes its own progress to S3 as it runs. The requester is
+// passed along so a failure knows whose quota to give back.
+export async function triggerRenderTask(scriptId: string, requester: RenderRequester): Promise<void> {
   if (process.env.RENDER_MODE === "local") {
     startLocalRender(scriptId);
     return;
   }
-  const cluster = requireEnv("ECS_CLUSTER");
-  const taskDefinition = requireEnv("ECS_TASK_DEFINITION");
-  const subnets = requireEnv("ECS_SUBNETS").split(",");
-  const securityGroup = requireEnv("ECS_SECURITY_GROUP");
-  const containerName = process.env.ECS_CONTAINER_NAME ?? "render";
-
-  await client.send(
-    new RunTaskCommand({
-      cluster,
-      taskDefinition,
-      launchType: "FARGATE",
-      networkConfiguration: {
-        awsvpcConfiguration: {
-          subnets,
-          securityGroups: [securityGroup],
-          assignPublicIp: "ENABLED",
-        },
-      },
-      overrides: {
-        containerOverrides: [
-          {
-            name: containerName,
-            environment: [
-              { name: "SCRIPT_ID", value: scriptId },
-              { name: "S3_BUCKET", value: requireEnv("S3_BUCKET") },
-              { name: "AWS_REGION", value: requireEnv("AWS_REGION") },
-            ],
-          },
-        ],
-      },
+  await sfn.send(
+    new StartExecutionCommand({
+      stateMachineArn: requireEnv("RENDER_STATE_MACHINE_ARN"),
+      // Names must be unique per state machine; a re-render of the same project needs a new one.
+      name: `${scriptId}-${Date.now()}`,
+      input: JSON.stringify({ script_id: scriptId, owner: requester.owner, role: requester.role }),
     }),
   );
 }

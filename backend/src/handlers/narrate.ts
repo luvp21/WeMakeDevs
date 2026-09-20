@@ -1,10 +1,10 @@
-import type { APIGatewayProxyHandlerV2 } from "aws-lambda";
+import { secured } from "./secure.js";
 import { NarrateRequestSchema } from "@vaani/shared";
 import { ZodError } from "zod";
 import { getLockedScript } from "../lib/lockScript.js";
 import { narrateScript } from "../lib/narration/index.js";
 
-export const handler: APIGatewayProxyHandlerV2 = async (event) => {
+export const handler = secured({ script: "body" }, async (event) => {
   try {
     const parsed = NarrateRequestSchema.parse(JSON.parse(event.body ?? "{}"));
     const locked = await getLockedScript(parsed.script_id);
@@ -16,4 +16,4 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     }
     return { statusCode: 500, body: JSON.stringify({ error: (err as Error).message }) };
   }
-};
+});

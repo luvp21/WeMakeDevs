@@ -1,7 +1,7 @@
-import type { APIGatewayProxyHandlerV2 } from "aws-lambda";
+import { secured } from "./secure.js";
 import { getRenderStatus } from "../lib/render/status.js";
 
-export const handler: APIGatewayProxyHandlerV2 = async (event) => {
+export const handler = secured({ script: "path" }, async (event) => {
   try {
     const scriptId = event.pathParameters?.scriptId;
     if (!scriptId) {
@@ -12,4 +12,4 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
   } catch (err) {
     return { statusCode: 500, body: JSON.stringify({ error: (err as Error).message }) };
   }
-};
+});

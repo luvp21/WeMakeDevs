@@ -47,7 +47,8 @@ GitHub URL + notes + format + language + length (or the user's own script)
 └──────────┬──────────┘
            ▼
 ┌─────────────────────┐
-│ 7. Render            │  ECS Fargate one-off task (never Lambda). Per beat: Playwright captures
+│ 7. Render            │  Step Functions runs an ECS Fargate one-off task (never Lambda) and waits
+│ Fargate + ffmpeg     │  for it. Per beat: Playwright captures
 │ Fargate + ffmpeg     │  the animated visual frame by frame; ffmpeg builds constant-30fps clips,
 │ render/src           │  fits demo clips to their beats, joins the scene with the recorded
 └──────────┬──────────┘  audio, overlays the face bubble, and concatenates scenes to final.mp4.
@@ -55,7 +56,11 @@ GitHub URL + notes + format + language + length (or the user's own script)
       Finished video (presigned S3 URL)
 ```
 
-The whole flow is driven by the app's stepper (Repo, Script, Record, Sync, Video) and by artifacts in S3. There is no Step Functions state machine: each stage's state is derived from which objects exist, which is also how the dashboard knows where a project stands.
+The whole flow is driven by the app's stepper (Repo, Script, Record, Sync, Video) and by artifacts in S3. Only the render is a Step Functions workflow (see below); everywhere else each stage's state is derived from which objects exist in S3, which is also how the dashboard knows where a project stands.
+
+### The render workflow
+
+`POST /api/render` spends the tester's render, then starts a Step Functions execution (`backend/statemachine/render.asl.json`) with the project id, owner and role. `RunRender` uses the `ecs:runTask.sync` integration, so the workflow waits for the Fargate task and fails if the task exits non-zero or takes over 20 minutes. Any failure goes to `TidyUp` (the `RenderFailedFunction` Lambda, logic in `lib/render/failure.ts`): mark the render as failed if the worker couldn't (a crash or timeout leaves it on "running"), give a tester their render back in DynamoDB, add a note to the message the tester sees, and publish the reason to the SNS alerts topic. The execution then ends in a `Fail` state, which the `render-failed` CloudWatch alarm also watches. The worker's message to the app is sanitized: AWS and ffmpeg errors (role names, account ids, command output) go to the logs and the alert, not the page. In local dev (`RENDER_MODE=local`) the worker runs directly and none of this applies.
 
 ### Fallback path
 
@@ -74,18 +79,25 @@ Instead of recording, `POST /narrate` has Amazon Polly (Kajal, `en-IN` for Engli
 
 ```
 Browser ──https──> API Gateway HTTP API ──┬─ GET /, /{proxy+}   -> SiteFunction (serves frontend/dist)
-                   (one origin)           └─ /api/*             -> 15 Lambda functions
+                   (one origin)           └─ /api/*             -> 17 Lambda functions
                                                                     │
             presigned PUT/GET (recordings, clips, video) ───────────┤
                                                                     ▼
                                                               S3 bucket
                                                                     ▲
-                    RenderTriggerFunction -> ecs:RunTask -> Fargate ┘  (image in ECR)
+       RenderTriggerFunction -> Step Functions -> ecs:RunTask -> Fargate ┘  (image in ECR)
+                         └─ on failure: RenderFailedFunction -> DynamoDB refund + SNS alert
 ```
 
 Everything is in `backend/template.yaml`. CloudFront would normally front the site, but this account can't create CloudFront resources until AWS verifies it, so the frontend is served by `backend/site/index.mjs` (gzip, immutable caching for fingerprinted assets, SPA fallback, path-traversal guarded). The API is throttled (50 rps, burst 100) because it is public and each call can spend model, transcription, TTS or Fargate money.
 
 Locally, `backend/src/local-server.ts` serves the same routes (`/api/*`) and the Vite dev server proxies to it. With `RENDER_MODE=local` the render worker runs from the checkout instead of Fargate.
+
+## Access control
+
+Fixed accounts, no sign-up (`backend/src/lib/auth/`). `POST /api/auth/login` checks a salted scrypt hash in constant time and returns a signed token; `POST /api/auth/judge-link` exchanges the private link's key for a judge session (the key is `HMAC(AUTH_SECRET, "vaani/judge-link/v1")`, compared in constant time, so the judges need no password and rotating the secret revokes the link); `GET /api/auth/me` returns the account and its usage. Every other route goes through one function, `guard()` in `access.ts` (used by the Lambda wrapper `handlers/secure.ts` and by the local server), which checks in order: a valid unexpired token, that the project belongs to the caller (the judge passes; a tester on someone else's project gets a 404, indistinguishable from a missing one), and a quota. Quotas live in a DynamoDB table (`<stack>-usage`, one item per tester) and every change is a single atomic conditional update (an increment only succeeds while the counter is under its limit), so simultaneous requests can't both take the last unit. A tester gets 5 drafts, 3 script locks and 1 render in total (`TESTER_LIMITS` in `shared/src/auth.ts`); a call that then fails on our side gives its quota back. A locked script records its `owner`; projects from before accounts have none and are visible to the judge only. The dashboard lists a tester's own projects and every project for the judge.
+
+The web app decides what to show by role (blog link `/` is a sign-in for testers, `/judge` for the judge, landing page and full dashboard only for the judge), but that is presentation: the data is protected by the server checks above.
 
 ## Data contracts
 
@@ -116,7 +128,9 @@ All defined once as Zod schemas in `shared/src/index.ts`; the API validates requ
 | `LLM_PROVIDER` (`gemini` default, or `bedrock`), `GEMINI_API_KEY`, `GEMINI_MODEL` | script generation |
 | `STT_PROVIDER` (`groq` default, or `aws`), `GROQ_API_KEY`, `WHISPER_LANGUAGE` | transcription |
 | `GITHUB_TOKEN` | optional, lifts GitHub's 60 requests an hour |
-| `ECS_CLUSTER`, `ECS_TASK_DEFINITION`, `ECS_SUBNETS`, `ECS_SECURITY_GROUP` | render trigger (set by the stack in Lambda) |
+| `USAGE_TABLE` | the DynamoDB table of tester usage (`vaani-backend-usage`) |
+| `RENDER_STATE_MACHINE_ARN`, `ALERT_TOPIC_ARN` | set by the stack in Lambda: the render workflow and the alerts topic |
+| `AUTH_SECRET`, `AUTH_ACCOUNTS` | session signing key and the fixed accounts (base64 JSON of salted hashes), from `backend/scripts/make-accounts.mjs` |
 | `RENDER_MODE=local` | dev only: run the render from the checkout |
 
 See `backend/.env.example`.

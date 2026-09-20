@@ -1,9 +1,9 @@
-import type { APIGatewayProxyHandlerV2 } from "aws-lambda";
+import { secured } from "./secure.js";
 import { ScriptGenRequestSchema } from "@vaani/shared";
 import { ZodError } from "zod";
 import { generateScript } from "../lib/scriptGen.js";
 
-export const handler: APIGatewayProxyHandlerV2 = async (event) => {
+export const handler = secured({ quota: "drafts" }, async (event) => {
   try {
     const parsed = ScriptGenRequestSchema.parse(JSON.parse(event.body ?? "{}"));
     const script = await generateScript(parsed.ingest, parsed.user_context, parsed.format, {
@@ -17,4 +17,4 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     }
     return { statusCode: 500, body: JSON.stringify({ error: (err as Error).message }) };
   }
-};
+});

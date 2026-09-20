@@ -1,12 +1,12 @@
-import type { APIGatewayProxyHandlerV2 } from "aws-lambda";
 import { LockScriptRequestSchema } from "@vaani/shared";
 import { ZodError } from "zod";
 import { lockScript } from "../lib/lockScript.js";
+import { secured } from "./secure.js";
 
-export const handler: APIGatewayProxyHandlerV2 = async (event) => {
+export const handler = secured({ quota: "locks" }, async (event, auth) => {
   try {
     const parsed = LockScriptRequestSchema.parse(JSON.parse(event.body ?? "{}"));
-    const locked = await lockScript(parsed.script, parsed.ingest);
+    const locked = await lockScript(parsed.script, parsed.ingest, auth.username);
     return { statusCode: 200, body: JSON.stringify(locked) };
   } catch (err) {
     if (err instanceof ZodError) {
@@ -14,4 +14,4 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     }
     return { statusCode: 500, body: JSON.stringify({ error: (err as Error).message }) };
   }
-};
+});

@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useLocation } from "react-router";
-import { FolderKanban, Home, Plus } from "lucide-react";
+import { FolderKanban, Home, LogOut, Plus } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -23,13 +23,23 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Logo } from "@/components/Logo";
+import { Badge } from "@/components/ui/badge";
+import { useAuth } from "@/lib/auth";
 
 function pageTitle(pathname: string): string {
   if (pathname.startsWith("/app/studio")) return "Studio";
   return "Projects";
 }
 
+// What a tester has left, in words. The judge has no limits.
+function allowanceText(usage?: { renders: number }, limits?: { renders: number }): string | null {
+  if (!usage || !limits) return null;
+  const left = Math.max(0, limits.renders - usage.renders);
+  return left > 0 ? `${left} video${left === 1 ? "" : "s"} left` : "Video made";
+}
+
 export function AppShell() {
+  const { session, signOut } = useAuth();
   const { pathname } = useLocation();
   const inStudio = pathname.startsWith("/app/studio");
 
@@ -73,21 +83,36 @@ export function AppShell() {
           </SidebarContent>
           <SidebarFooter className="border-t">
             <SidebarMenu>
-              <SidebarMenuItem>
-                <SidebarMenuButton tooltip="Back to site" render={<NavLink to="/" />}>
-                  <Home />
-                  <span>Back to site</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
+              {session?.role === "judge" && (
+                <SidebarMenuItem>
+                  <SidebarMenuButton tooltip="Back to site" render={<NavLink to="/" />}>
+                    <Home />
+                    <span>Back to site</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )}
               <SidebarMenuItem>
                 <SidebarMenuButton size="lg" className="pointer-events-none">
                   <Avatar className="size-7">
-                    <AvatarFallback className="text-xs">V</AvatarFallback>
+                    <AvatarFallback className="text-xs">{(session?.display_name ?? "V").slice(0, 1)}</AvatarFallback>
                   </Avatar>
-                  <span className="flex flex-col text-left leading-tight">
-                    <span className="text-sm font-medium">Local workspace</span>
-                    <span className="text-xs text-muted-foreground">Your recordings stay in your S3</span>
+                  <span className="flex min-w-0 flex-col text-left leading-tight">
+                    <span className="truncate text-sm font-medium">{session?.display_name}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {session?.role === "judge" ? "Sees every project" : allowanceText(session?.usage, session?.limits)}
+                    </span>
                   </span>
+                  {session?.role === "judge" && (
+                    <Badge variant="secondary" className="ml-auto">
+                      Judge
+                    </Badge>
+                  )}
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton tooltip="Sign out" onClick={signOut}>
+                  <LogOut />
+                  <span>Sign out</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
             </SidebarMenu>

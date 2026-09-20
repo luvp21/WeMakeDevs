@@ -1,9 +1,9 @@
-import type { APIGatewayProxyHandlerV2 } from "aws-lambda";
+import { secured } from "./secure.js";
 import { RecordingUploadUrlRequestSchema } from "@vaani/shared";
 import { ZodError } from "zod";
 import { getRecordingUploadUrl } from "../lib/recording.js";
 
-export const handler: APIGatewayProxyHandlerV2 = async (event) => {
+export const handler = secured({ script: "body" }, async (event) => {
   try {
     const parsed = RecordingUploadUrlRequestSchema.parse(JSON.parse(event.body ?? "{}"));
     const result = await getRecordingUploadUrl(parsed);
@@ -14,4 +14,4 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     }
     return { statusCode: 500, body: JSON.stringify({ error: (err as Error).message }) };
   }
-};
+});

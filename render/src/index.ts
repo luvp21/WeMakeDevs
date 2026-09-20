@@ -114,12 +114,21 @@ async function main(): Promise<void> {
   await setStatus(scriptId, "done");
 }
 
+// What the person sees in the app. The full error goes to the logs (and the alert);
+// AWS and ffmpeg errors carry role names, account ids and command output that
+// don't belong on a web page.
+export function publicMessage(err: unknown): string {
+  if (!(err instanceof Error)) return "The render failed on our side.";
+  const fromAws = "$metadata" in err;
+  const fromFfmpeg = err.message.startsWith("ffmpeg") || err.message.startsWith("ffprobe");
+  return fromAws || fromFfmpeg ? "The render failed on our side." : err.message.slice(0, 300);
+}
+
 main()
   .catch(async (err: unknown) => {
     const scriptId = process.env.SCRIPT_ID;
-    const message = err instanceof Error ? err.message : String(err);
-    console.error("Render failed:", message);
-    if (scriptId) await setStatus(scriptId, "error", message);
+    console.error("Render failed:", err instanceof Error ? err.message : String(err));
+    if (scriptId) await setStatus(scriptId, "error", publicMessage(err));
     process.exitCode = 1;
   })
   .finally(() => closeBrowser());

@@ -77,3 +77,9 @@ test("paths that try to escape the site folder never leave it", () => {
     assert.ok(target === null || target.full.startsWith(distDir + path.sep), `${p} escaped: ${target?.full}`);
   }
 });
+
+test("pages never send a referrer, so the judge link's key can't leak to another site", async () => {
+  const res = await get("/j/some-key");
+  assert.equal(res.statusCode, 200, "the judge link route serves the app");
+  assert.equal(res.headers["referrer-policy"], "no-referrer");
+});

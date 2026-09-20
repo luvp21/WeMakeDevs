@@ -17,12 +17,28 @@ Parameters:
     NoEcho: true
     Default: ""
     Description: Optional GitHub token for repo ingest. Without one, GitHub allows only 60 requests an hour per IP, and Lambda's IPs are shared.
+  AuthSecret:
+    Type: String
+    NoEcho: true
+    MinLength: 32
+    Description: Signs session tokens (backend/scripts/make-accounts.mjs writes AUTH_SECRET to backend/.env)
+  AuthAccounts:
+    Type: String
+    NoEcho: true
+    Description: JSON list of the fixed accounts with salted password hashes (AUTH_ACCOUNTS in backend/.env)
+  AlertEmail:
+    Type: String
+    Default: ""
+    Description: Optional. Where alerts go (a failed render, a spike of API errors). AWS emails a confirmation link to click.
   VpcId:
     Type: AWS::EC2::VPC::Id
     Description: VPC the render Fargate task launches into (default VPC is fine for this)
   SubnetIds:
     Type: List<AWS::EC2::Subnet::Id>
     Description: Public subnets for the render Fargate task (assignPublicIp is used, so no NAT gateway needed)
+
+Conditions:
+  HasAlertEmail: !Not [!Equals [!Ref AlertEmail, ""]]
 
 Globals:
   Function:
@@ -32,6 +48,9 @@ Globals:
     Environment:
       Variables:
         S3_BUCKET: !Ref VaaniBucket
+        AUTH_SECRET: !Ref AuthSecret
+        AUTH_ACCOUNTS: !Ref AuthAccounts
+        USAGE_TABLE: !Ref UsageTable
 
 Resources:
   VaaniBucket:
@@ -47,6 +66,21 @@ Resources:
             AllowedMethods: [PUT]
             AllowedHeaders: ["*"]
 
+  # A tester's usage counters (drafts, locks, renders), one item per account. DynamoDB
+  # so each count is an atomic conditional update: two requests at the same moment
+  # can't both take the last render.
+  UsageTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "${AWS::StackName}-usage"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: username
+          AttributeType: S
+      KeySchema:
+        - AttributeName: username
+          KeyType: HASH
+
   VaaniHttpApi:
     Type: AWS::Serverless::HttpApi
     Properties:
@@ -60,6 +94,44 @@ Resources:
         AllowOrigins: ["*"]
         AllowMethods: ["GET", "POST", "OPTIONS"]
         AllowHeaders: ["content-type"]
+
+  # Sign-in for the fixed tester and judge accounts, and "who am I / how much is left".
+  AuthFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: auth.handler
+      CodeUri: src
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UsageTable
+        - S3CrudPolicy:
+            BucketName: !Ref VaaniBucket
+      Events:
+        Login:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref VaaniHttpApi
+            Path: /api/auth/login
+            Method: POST
+        JudgeLink:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref VaaniHttpApi
+            Path: /api/auth/judge-link
+            Method: POST
+        Me:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref VaaniHttpApi
+            Path: /api/auth/me
+            Method: GET
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: node24
+        EntryPoints:
+          - handlers/auth.ts
 
   IngestFunction:
     Type: AWS::Serverless::Function
@@ -98,6 +170,8 @@ Resources:
           LLM_PROVIDER: "gemini"
           GEMINI_API_KEY: !Ref GeminiApiKey
       Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UsageTable
         - S3CrudPolicy:
             BucketName: !Ref VaaniBucket
       Events:
@@ -125,6 +199,12 @@ Resources:
         Variables:
           LLM_PROVIDER: "gemini"
           GEMINI_API_KEY: !Ref GeminiApiKey
+      # Reads and writes the account's draft count (quota/<user>.json).
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UsageTable
+        - S3CrudPolicy:
+            BucketName: !Ref VaaniBucket
       Events:
         Api:
           Type: HttpApi
@@ -196,6 +276,8 @@ Resources:
       Handler: lockScript.handler
       CodeUri: src
       Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UsageTable
         - S3CrudPolicy:
             BucketName: !Ref VaaniBucket
       Events:
@@ -332,23 +414,14 @@ Resources:
       CodeUri: src
       Environment:
         Variables:
-          ECS_CLUSTER: !Ref RenderCluster
-          ECS_TASK_DEFINITION: !Ref RenderTaskDefinition
-          ECS_SUBNETS: !Join [",", !Ref SubnetIds]
-          ECS_SECURITY_GROUP: !Ref RenderSecurityGroup
-          ECS_CONTAINER_NAME: render
+          RENDER_STATE_MACHINE_ARN: !Ref RenderStateMachine
       Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UsageTable
         - S3CrudPolicy:
             BucketName: !Ref VaaniBucket
-        - Statement:
-            - Effect: Allow
-              Action: ecs:RunTask
-              Resource: !Ref RenderTaskDefinition
-            - Effect: Allow
-              Action: iam:PassRole
-              Resource:
-                - !GetAtt RenderTaskExecutionRole.Arn
-                - !GetAtt RenderTaskRole.Arn
+        - StepFunctionsExecutionPolicy:
+            StateMachineName: !GetAtt RenderStateMachine.Name
       Events:
         Render:
           Type: HttpApi
@@ -363,6 +436,124 @@ Resources:
         Target: node24
         EntryPoints:
           - handlers/render.ts
+
+  # ----------------------------------------------------------------- render workflow
+  # The API only starts this; it runs the render on Fargate, waits for it, and
+  # tidies up when it fails: marks the render failed (a crashed task otherwise
+  # leaves the app waiting on "rendering" forever), gives a tester their one
+  # render back, and raises an alert.
+  RenderStateMachine:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      DefinitionUri: statemachine/render.asl.json
+      DefinitionSubstitutions:
+        Cluster: !Ref RenderCluster
+        TaskDefinition: !Ref RenderTaskDefinition
+        SecurityGroup: !Ref RenderSecurityGroup
+        SubnetIds: !Join ["\",\"", !Ref SubnetIds]
+        Bucket: !Ref VaaniBucket
+        Region: !Ref AWS::Region
+        FailedFunctionArn: !GetAtt RenderFailedFunction.Arn
+      Policies:
+        - LambdaInvokePolicy:
+            FunctionName: !Ref RenderFailedFunction
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action: ecs:RunTask
+              Resource: !Ref RenderTaskDefinition
+            - Effect: Allow
+              Action:
+                - ecs:StopTask
+                - ecs:DescribeTasks
+              Resource: "*"
+            - Effect: Allow
+              Action: iam:PassRole
+              Resource:
+                - !GetAtt RenderTaskExecutionRole.Arn
+                - !GetAtt RenderTaskRole.Arn
+            # Needed for the ".sync" integration, which watches the task through EventBridge.
+            - Effect: Allow
+              Action:
+                - events:PutTargets
+                - events:PutRule
+                - events:DescribeRule
+              Resource: !Sub "arn:aws:events:${AWS::Region}:${AWS::AccountId}:rule/StepFunctionsGetEventsForECSTaskRule"
+
+  RenderFailedFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: renderFailed.handler
+      CodeUri: src
+      Environment:
+        Variables:
+          ALERT_TOPIC_ARN: !Ref AlertsTopic
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UsageTable
+        - S3CrudPolicy:
+            BucketName: !Ref VaaniBucket
+        - SNSPublishMessagePolicy:
+            TopicName: !GetAtt AlertsTopic.TopicName
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: node24
+        EntryPoints:
+          - handlers/renderFailed.ts
+
+  # ----------------------------------------------------------------- alerts
+  AlertsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub "${AWS::StackName}-alerts"
+
+  AlertsSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: HasAlertEmail
+    Properties:
+      TopicArn: !Ref AlertsTopic
+      Protocol: email
+      Endpoint: !Ref AlertEmail
+
+  RenderFailedAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${AWS::StackName}-render-failed"
+      AlarmDescription: A render workflow execution failed
+      Namespace: AWS/States
+      MetricName: ExecutionsFailed
+      Dimensions:
+        - Name: StateMachineArn
+          Value: !Ref RenderStateMachine
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlertsTopic
+
+  ApiErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${AWS::StackName}-api-5xx"
+      AlarmDescription: The API is returning server errors (5 or more in 5 minutes)
+      Namespace: AWS/ApiGateway
+      MetricName: 5xx
+      Dimensions:
+        - Name: ApiId
+          Value: !Ref VaaniHttpApi
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 5
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlertsTopic
 
   RenderStatusFunction:
     Type: AWS::Serverless::Function
@@ -589,6 +780,12 @@ Resources:
             Method: GET
 
 Outputs:
+  RenderStateMachineArn:
+    Description: The render workflow
+    Value: !Ref RenderStateMachine
+  AlertsTopicArn:
+    Description: Alerts (failed renders, API errors) are published here
+    Value: !Ref AlertsTopic
   ApiUrl:
     Description: Base URL for the HTTP API
     Value: !Sub "https://${VaaniHttpApi}.execute-api.${AWS::Region}.amazonaws.com"

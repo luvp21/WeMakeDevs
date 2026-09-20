@@ -1,9 +1,9 @@
-import type { APIGatewayProxyHandlerV2 } from "aws-lambda";
+import { secured } from "./secure.js";
 import { IngestRequestSchema } from "@vaani/shared";
 import { ZodError } from "zod";
 import { ingestRepo, IngestError } from "../lib/ingest.js";
 
-export const handler: APIGatewayProxyHandlerV2 = async (event) => {
+export const handler = secured({}, async (event) => {
   try {
     const parsed = IngestRequestSchema.parse(JSON.parse(event.body ?? "{}"));
     const result = await ingestRepo(parsed.repo_url);
@@ -15,4 +15,4 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     const status = err instanceof IngestError ? 400 : 500;
     return { statusCode: status, body: JSON.stringify({ error: (err as Error).message }) };
   }
-};
+});

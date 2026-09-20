@@ -1,4 +1,4 @@
-import type { APIGatewayProxyHandlerV2 } from "aws-lambda";
+import { secured } from "./secure.js";
 import { ScriptGenRequestSchema, WriteSceneRequestSchema } from "@vaani/shared";
 import { ZodError } from "zod";
 import { planScript, writePlannedScene } from "../lib/scriptGen.js";
@@ -8,7 +8,7 @@ function failure(err: unknown) {
   return { statusCode: 500, body: JSON.stringify({ error: (err as Error).message }) };
 }
 
-export const planHandler: APIGatewayProxyHandlerV2 = async (event) => {
+export const planHandler = secured({ quota: "drafts" }, async (event) => {
   try {
     const parsed = ScriptGenRequestSchema.parse(JSON.parse(event.body ?? "{}"));
     const scenes = await planScript(parsed.ingest, parsed.user_context, parsed.format, {
@@ -19,9 +19,9 @@ export const planHandler: APIGatewayProxyHandlerV2 = async (event) => {
   } catch (err) {
     return failure(err);
   }
-};
+});
 
-export const writeSceneHandler: APIGatewayProxyHandlerV2 = async (event) => {
+export const writeSceneHandler = secured({}, async (event) => {
   try {
     const parsed = WriteSceneRequestSchema.parse(JSON.parse(event.body ?? "{}"));
     const result = await writePlannedScene({
@@ -36,4 +36,4 @@ export const writeSceneHandler: APIGatewayProxyHandlerV2 = async (event) => {
   } catch (err) {
     return failure(err);
   }
-};
+});

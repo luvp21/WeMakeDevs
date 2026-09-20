@@ -1,8 +1,12 @@
 import { lazy, Suspense } from "react";
-import { BrowserRouter, Route, Routes } from "react-router";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router";
 import { AppShell } from "@/components/app/AppShell";
 import { Skeleton } from "@/components/ui/skeleton";
-import Landing from "@/pages/Landing";
+import Home from "@/pages/Home";
+import SignIn from "@/pages/SignIn";
+import JudgeLink from "@/pages/JudgeLink";
+import { RequireAuth } from "@/components/RequireAuth";
+import { AuthProvider, useAuth } from "@/lib/auth";
 import NotFound from "@/pages/NotFound";
 
 // The app pages pull in the syntax highlighter and recorder code; the public
@@ -19,11 +23,21 @@ function PageFallback() {
   );
 }
 
+// The private judge sign-in. Anyone already signed in as the judge has nothing to sign in to.
+function JudgeEntry() {
+  const { session } = useAuth();
+  return session?.role === "judge" ? <Navigate to="/" replace /> : <SignIn variant="judge" />;
+}
+
 export default function App() {
   return (
+    <AuthProvider>
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<Landing />} />
+        <Route path="/" element={<Home />} />
+        <Route path="/judge" element={<JudgeEntry />} />
+        <Route path="/j/:key" element={<JudgeLink />} />
+        <Route element={<RequireAuth />}>
         <Route path="/app" element={<AppShell />}>
           <Route
             index
@@ -44,8 +58,10 @@ export default function App() {
             }
           />
         </Route>
+        </Route>
         <Route path="*" element={<NotFound />} />
       </Routes>
     </BrowserRouter>
+    </AuthProvider>
   );
 }

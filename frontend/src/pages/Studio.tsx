@@ -13,6 +13,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import * as api from "@/lib/api";
 import { generateInSteps } from "@/lib/generate";
+import { useAuth } from "@/lib/auth";
 
 const RENDER_POLL_INTERVAL_MS = 3000;
 
@@ -49,6 +50,7 @@ function stepForProject(detail: ProjectDetail): StepId {
 export default function Studio() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { refresh: refreshAllowance } = useAuth();
 
   const [active, setActive] = useState<StepId>("repo");
   const [generateStatus, setGenerateStatus] = useState<GenerateStatus | null>(null);
@@ -130,6 +132,7 @@ export default function Studio() {
       setError(err instanceof Error ? err.message : "Unexpected error");
     } finally {
       setGenerateStatus(null);
+      void refreshAllowance();
     }
   }
 
@@ -147,6 +150,7 @@ export default function Studio() {
       setError(err instanceof Error ? err.message : "Unexpected error");
     } finally {
       setLocking(false);
+      void refreshAllowance();
     }
   }
 
@@ -231,6 +235,8 @@ export default function Studio() {
       setRenderStatus(status);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unexpected error");
+    } finally {
+      void refreshAllowance();
     }
   }
 

@@ -12,6 +12,8 @@ import {
   SceneGenResponseSchema,
   ScriptPlanResponseSchema,
   ApiErrorSchema,
+  LoginResponseSchema,
+  SessionSchema,
   type IngestResult,
   type Script,
   type LockedScript,
@@ -23,33 +25,49 @@ import {
   type ProjectList,
   type ProjectDetail,
   type VideoFormatId,
+  type LoginResponse,
+  type Session,
   type ScriptLanguage,
   type SceneGenResponse,
   type PlannedScene,
 } from "@vaani/shared";
 import { z } from "zod";
 
+// The signed-in account's token, set by AuthProvider. Sent on every call.
+let token: string | null = null;
+export function setToken(next: string | null): void {
+  token = next;
+}
+
+// Fired when the server says the sign-in is no longer good, so the app can
+// return to the sign-in page from wherever it is.
+export const UNAUTHORIZED_EVENT = "vaani:unauthorized";
+
+function authHeaders(): Record<string, string> {
+  return token ? { authorization: `Bearer ${token}` } : {};
+}
+
+async function failFrom(res: Response, json: unknown, path: string): Promise<never> {
+  if (res.status === 401 && path !== "/auth/login") window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
+  const parsedError = ApiErrorSchema.safeParse(json);
+  throw new Error(parsedError.success ? parsedError.data.error : `Request to ${path} failed (${res.status})`);
+}
+
 async function postJson<T>(path: string, body: unknown, schema: z.ZodType<T, z.ZodTypeDef, unknown>): Promise<T> {
   const res = await fetch(`/api${path}`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...authHeaders() },
     body: JSON.stringify(body),
   });
   const json: unknown = await res.json();
-  if (!res.ok) {
-    const parsedError = ApiErrorSchema.safeParse(json);
-    throw new Error(parsedError.success ? parsedError.data.error : `Request to ${path} failed (${res.status})`);
-  }
+  if (!res.ok) return failFrom(res, json, path);
   return schema.parse(json);
 }
 
 async function getJson<T>(path: string, schema: z.ZodType<T, z.ZodTypeDef, unknown>): Promise<T> {
-  const res = await fetch(`/api${path}`);
+  const res = await fetch(`/api${path}`, { headers: authHeaders() });
   const json: unknown = await res.json();
-  if (!res.ok) {
-    const parsedError = ApiErrorSchema.safeParse(json);
-    throw new Error(parsedError.success ? parsedError.data.error : `Request to ${path} failed (${res.status})`);
-  }
+  if (!res.ok) return failFrom(res, json, path);
   return schema.parse(json);
 }
 
@@ -199,4 +217,18 @@ export function listProjects(): Promise<ProjectList> {
 // scenes already have recordings, whether it's synced, and render status.
 export function getProject(scriptId: string): Promise<ProjectDetail> {
   return getJson(`/projects/${scriptId}`, ProjectDetailSchema);
+}
+
+export function login(username: string, password: string): Promise<LoginResponse> {
+  return postJson("/auth/login", { username, password }, LoginResponseSchema);
+}
+
+// Who is signed in and how much of their allowance is used.
+export function me(): Promise<Session> {
+  return getJson("/auth/me", SessionSchema);
+}
+
+// Opening the private judge link exchanges its key for a judge session.
+export function judgeLink(key: string): Promise<LoginResponse> {
+  return postJson("/auth/judge-link", { key }, LoginResponseSchema);
 }

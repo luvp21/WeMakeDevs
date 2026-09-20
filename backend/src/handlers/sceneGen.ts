@@ -1,9 +1,9 @@
-import type { APIGatewayProxyHandlerV2 } from "aws-lambda";
+import { secured } from "./secure.js";
 import { SceneGenRequestSchema } from "@vaani/shared";
 import { ZodError } from "zod";
 import { generateScene } from "../lib/scriptGen.js";
 
-export const handler: APIGatewayProxyHandlerV2 = async (event) => {
+export const handler = secured({}, async (event) => {
   try {
     const parsed = SceneGenRequestSchema.parse(JSON.parse(event.body ?? "{}"));
     const result = await generateScene({
@@ -22,4 +22,4 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     }
     return { statusCode: 500, body: JSON.stringify({ error: (err as Error).message }) };
   }
-};
+});

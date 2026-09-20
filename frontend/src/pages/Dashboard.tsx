@@ -24,6 +24,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/lib/auth";
 import { STAGE_ACTION, STAGE_LABEL, STAGE_STEPS_DONE, relativeTime } from "@/lib/stage";
 import * as api from "@/lib/api";
 
@@ -84,6 +85,8 @@ function EmptyState() {
 
 export default function Dashboard() {
   const navigate = useNavigate();
+  const { session } = useAuth();
+  const isJudge = session?.role === "judge";
   const [projects, setProjects] = useState<ProjectSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
@@ -159,6 +162,7 @@ export default function Dashboard() {
               <TableHeader>
                 <TableRow>
                   <TableHead className="pl-4">Project</TableHead>
+                  {isJudge && <TableHead>Made by</TableHead>}
                   <TableHead>Status</TableHead>
                   <TableHead className="hidden md:table-cell">Progress</TableHead>
                   <TableHead className="hidden sm:table-cell">Recorded</TableHead>
@@ -184,6 +188,9 @@ export default function Dashboard() {
                         </span>
                       </div>
                     </TableCell>
+                    {isJudge && (
+                      <TableCell className="text-muted-foreground">{project.owner ?? "Before accounts"}</TableCell>
+                    )}
                     <TableCell>
                       <StageBadge stage={project.stage} />
                     </TableCell>

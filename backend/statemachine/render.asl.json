@@ -1,0 +1,51 @@
+{
+  "Comment": "Render a video on Fargate and wait for it. If the task fails or times out, mark the render failed, give a tester their render back and raise an alert.",
+  "StartAt": "RunRender",
+  "States": {
+    "RunRender": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::ecs:runTask.sync",
+      "TimeoutSeconds": 1200,
+      "Parameters": {
+        "Cluster": "${Cluster}",
+        "TaskDefinition": "${TaskDefinition}",
+        "LaunchType": "FARGATE",
+        "NetworkConfiguration": {
+          "AwsvpcConfiguration": {
+            "Subnets": ["${SubnetIds}"],
+            "SecurityGroups": ["${SecurityGroup}"],
+            "AssignPublicIp": "ENABLED"
+          }
+        },
+        "Overrides": {
+          "ContainerOverrides": [
+            {
+              "Name": "render",
+              "Environment": [
+                { "Name": "SCRIPT_ID", "Value.$": "$.script_id" },
+                { "Name": "S3_BUCKET", "Value": "${Bucket}" },
+                { "Name": "AWS_REGION", "Value": "${Region}" }
+              ]
+            }
+          ]
+        }
+      },
+      "ResultPath": null,
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "TidyUp" }],
+      "Next": "Rendered"
+    },
+    "TidyUp": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": { "FunctionName": "${FailedFunctionArn}", "Payload.$": "$" },
+      "ResultPath": null,
+      "Next": "RenderFailed"
+    },
+    "RenderFailed": {
+      "Type": "Fail",
+      "Error": "RenderFailed",
+      "Cause": "The render task failed or timed out."
+    },
+    "Rendered": { "Type": "Succeed" }
+  }
+}

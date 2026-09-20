@@ -2,13 +2,14 @@ import { lockedScriptKey, type IngestResult, type LockedScript, type Script } fr
 import { getJson, putJson } from "./s3.js";
 import { randomUUID } from "node:crypto";
 
-export async function lockScript(script: Script, ingest: IngestResult): Promise<LockedScript> {
+export async function lockScript(script: Script, ingest: IngestResult, owner?: string): Promise<LockedScript> {
   const scriptId = randomUUID();
   const locked: LockedScript = {
     script_id: scriptId,
     script,
     ingest,
     locked_at: new Date().toISOString(),
+    ...(owner ? { owner } : {}),
   };
   await putJson(lockedScriptKey(scriptId), locked);
   return locked;

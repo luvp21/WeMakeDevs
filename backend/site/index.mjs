@@ -69,6 +69,9 @@ async function load(full, file, acceptsGzip) {
     // Everything else (index.html above all) must be re-checked so a new deploy shows up.
     "cache-control": file.startsWith("/assets/") ? "public, max-age=31536000, immutable" : "no-cache",
     vary: "accept-encoding",
+    // The private judge link puts its key in the address; never pass that on to
+    // another site as a referrer.
+    "referrer-policy": "no-referrer",
     ...(gzip ? { "content-encoding": "gzip" } : {}),
   };
   const entry = { headers, body: body.toString("base64") };

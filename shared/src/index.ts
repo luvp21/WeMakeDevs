@@ -12,6 +12,7 @@ import { ScriptLanguageSchema } from "./languages.js";
 export * from "./storageKeys.js";
 export * from "./formats.js";
 export * from "./languages.js";
+export * from "./auth.js";
 export * from "./duration.js";
 export * from "./visualDesign.js";
 
@@ -281,6 +282,9 @@ export const LockedScriptSchema = z.object({
   script: ScriptSchema,
   ingest: IngestResultSchema,
   locked_at: z.string(),
+  // Username of the account that locked it. Older projects have none, so only
+  // the judge can see them.
+  owner: z.string().optional(),
 });
 export type LockedScript = z.infer<typeof LockedScriptSchema>;
 
@@ -397,6 +401,8 @@ export const ProjectSummarySchema = z.object({
   render_status: RenderStatusValueSchema.nullable(),
   stage: ProjectStageSchema,
   locked_at: z.string(),
+  // Who made it. Shown to the judge, who sees every account's projects.
+  owner: z.string().optional(),
 });
 export type ProjectSummary = z.infer<typeof ProjectSummarySchema>;
 

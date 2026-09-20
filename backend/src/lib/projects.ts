@@ -10,6 +10,7 @@ import {
 import { getJson, listObjects } from "./s3.js";
 import { getLockedScript } from "./lockScript.js";
 import { getRenderStatus } from "./render/status.js";
+import { canAccess, type Auth } from "./auth/access.js";
 
 const MAX_PROJECTS = 30;
 const UUID_KEY = /^scripts\/([0-9a-f-]{36})\.json$/;
@@ -45,6 +46,7 @@ function summarize(
     render_status: renderStatus,
     stage: deriveStage(recordedSceneIds.length, synced, renderStatus),
     locked_at: locked.locked_at,
+    ...(locked.owner ? { owner: locked.owner } : {}),
   };
 }
 
@@ -69,7 +71,13 @@ async function artifactIndex() {
   return { recordedByProject, synced, rendered };
 }
 
-export async function listProjects(): Promise<ProjectSummary[]> {
+// A tester sees only the projects they made; the judge sees every account's.
+export async function listProjects(auth?: Auth): Promise<ProjectSummary[]> {
+  const all = await listAllProjects();
+  return auth ? all.filter((p) => canAccess(auth, p.owner)) : all;
+}
+
+async function listAllProjects(): Promise<ProjectSummary[]> {
   const scripts = (await listObjects("scripts/"))
     .filter(({ key }) => UUID_KEY.test(key))
     .sort((a, b) => b.lastModified.getTime() - a.lastModified.getTime())

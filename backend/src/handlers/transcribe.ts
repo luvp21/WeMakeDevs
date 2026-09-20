@@ -1,8 +1,9 @@
-import type { APIGatewayProxyStructuredResultV2 } from "aws-lambda";
+import type { APIGatewayProxyEventV2, APIGatewayProxyStructuredResultV2 } from "aws-lambda";
 import { InvokeCommand, LambdaClient } from "@aws-sdk/client-lambda";
 import { TranscribeRequestSchema, recordingKey } from "@vaani/shared";
 import { ZodError } from "zod";
 import { markTranscriptionStarted, startTranscription } from "../lib/transcribe/index.js";
+import { secured } from "./secure.js";
 
 const lambda = new LambdaClient({});
 
@@ -22,18 +23,10 @@ function isBackgroundJob(event: unknown): event is BackgroundJob {
 // progress" and asks this same function to do the work in the background; the
 // app already polls the status endpoint. When the worker fails it stores the
 // failure there, so a bad transcription shows up instead of spinning forever.
-export const handler = async (event: unknown): Promise<APIGatewayProxyStructuredResultV2 | void> => {
-  if (isBackgroundJob(event)) {
-    // Failures are already written to the status by startTranscription().
-    await startTranscription(event.script_id, event.scene_id, recordingKey(event.script_id, event.scene_id, "webm")).catch(
-      () => undefined,
-    );
-    return;
-  }
-
+// The API call, once secure.ts has checked who is calling and that the project is theirs.
+const startFromApi = secured({ script: "body" }, async (event) => {
   try {
-    const body = (event as { body?: string }).body;
-    const parsed = TranscribeRequestSchema.parse(JSON.parse(body ?? "{}"));
+    const parsed = TranscribeRequestSchema.parse(JSON.parse(event.body ?? "{}"));
     await markTranscriptionStarted(parsed.script_id, parsed.scene_id);
     const job: BackgroundJob = { job: "transcribe", script_id: parsed.script_id, scene_id: parsed.scene_id };
     await lambda.send(
@@ -53,4 +46,17 @@ export const handler = async (event: unknown): Promise<APIGatewayProxyStructured
     }
     return { statusCode: 500, body: JSON.stringify({ error: (err as Error).message }) };
   }
+});
+
+export const handler = async (event: unknown): Promise<APIGatewayProxyStructuredResultV2 | void> => {
+  if (isBackgroundJob(event)) {
+    // A background run only ever comes from this function invoking itself (Lambda
+    // permissions allow nothing else to), so it has no user to check. Failures are
+    // already written to the status by startTranscription().
+    await startTranscription(event.script_id, event.scene_id, recordingKey(event.script_id, event.scene_id, "webm")).catch(
+      () => undefined,
+    );
+    return;
+  }
+  return startFromApi(event as APIGatewayProxyEventV2);
 };

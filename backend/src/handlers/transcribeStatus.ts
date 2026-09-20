@@ -1,7 +1,7 @@
-import type { APIGatewayProxyHandlerV2 } from "aws-lambda";
+import { secured } from "./secure.js";
 import { getTranscriptionStatus } from "../lib/transcribe/index.js";
 
-export const handler: APIGatewayProxyHandlerV2 = async (event) => {
+export const handler = secured({ script: "path" }, async (event) => {
   try {
     const scriptId = event.pathParameters?.scriptId;
     const sceneId = event.pathParameters?.sceneId;
@@ -13,4 +13,4 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
   } catch (err) {
     return { statusCode: 500, body: JSON.stringify({ error: (err as Error).message }) };
   }
-};
+});

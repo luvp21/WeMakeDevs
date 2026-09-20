@@ -19,7 +19,7 @@ Fill in the names below once you've actually decided — this is a suggested spl
 - Teleprompter recording UI (`getUserMedia` for webcam scenes)
 - Tab-picker capture for UI-demo scenes (`getDisplayMedia`)
 - Fargate/MediaConvert render pipeline
-- Wiring the stages together (the app's stepper plus state derived from S3; no Step Functions in the end)
+- Wiring the stages together (the app's stepper plus state derived from S3; Step Functions only for the render)
 - AWS account setup, credit form, Builder Center verification for both members
 
 ## Shared checkpoint
