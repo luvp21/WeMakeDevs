@@ -9,6 +9,7 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     const result = await generateScene({
       ingest: parsed.ingest,
       format: parsed.format,
+      language: parsed.language,
       userContext: parsed.user_context,
       sceneTitle: parsed.scene_title,
       narration: parsed.narration,

@@ -17,6 +17,12 @@ function getProvider(): "aws" | "groq" {
   return provider;
 }
 
+// Writes the "in progress" marker, replacing any earlier take's transcript. Call
+// this before handing the work to a background worker.
+export async function markTranscriptionStarted(scriptId: string, sceneId: string): Promise<void> {
+  if (getProvider() === "groq") await groq.markTranscriptionStarted(scriptId, sceneId);
+}
+
 export async function startTranscription(
   scriptId: string,
   sceneId: string,

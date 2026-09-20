@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Transform: AWS::Serverless-2016-10-31
-Description: Vaani backend — repo ingest, script gen, script lock, Polly Kajal narration, Fargate render, recording upload, Transcribe (stages 1-3, 5, 6, fallback narration, render)
+Description: Vaani — web app, repo ingest, script gen, script lock, Polly Kajal narration, Fargate render, recording upload, Transcribe (stages 1-3, 5, 6, fallback narration, render)
 
 Parameters:
   GeminiApiKey:
@@ -12,6 +12,11 @@ Parameters:
     NoEcho: true
     Default: ""
     Description: Groq API key used by the Whisper STT path (pass with --parameter-overrides GroqApiKey=...); only required when STT_PROVIDER=groq
+  GithubToken:
+    Type: String
+    NoEcho: true
+    Default: ""
+    Description: Optional GitHub token for repo ingest. Without one, GitHub allows only 60 requests an hour per IP, and Lambda's IPs are shared.
   VpcId:
     Type: AWS::EC2::VPC::Id
     Description: VPC the render Fargate task launches into (default VPC is fine for this)
@@ -45,6 +50,12 @@ Resources:
   VaaniHttpApi:
     Type: AWS::Serverless::HttpApi
     Properties:
+      # The API is public and unauthenticated, and every call can spend Gemini,
+      # Groq, Polly or Fargate money. This caps how fast anyone can hit it (page
+      # loads count too, so the ceiling leaves room for a few visitors at once).
+      DefaultRouteSettings:
+        ThrottlingBurstLimit: 100
+        ThrottlingRateLimit: 50
       CorsConfiguration:
         AllowOrigins: ["*"]
         AllowMethods: ["GET", "POST", "OPTIONS"]
@@ -57,7 +68,7 @@ Resources:
       CodeUri: src
       Environment:
         Variables:
-          GITHUB_TOKEN: ""
+          GITHUB_TOKEN: !Ref GithubToken
       Policies:
         - S3CrudPolicy:
             BucketName: !Ref VaaniBucket
@@ -66,7 +77,7 @@ Resources:
           Type: HttpApi
           Properties:
             ApiId: !Ref VaaniHttpApi
-            Path: /ingest
+            Path: /api/ingest
             Method: POST
     Metadata:
       BuildMethod: esbuild
@@ -94,7 +105,7 @@ Resources:
           Type: HttpApi
           Properties:
             ApiId: !Ref VaaniHttpApi
-            Path: /script
+            Path: /api/script
             Method: POST
     Metadata:
       BuildMethod: esbuild
@@ -119,7 +130,7 @@ Resources:
           Type: HttpApi
           Properties:
             ApiId: !Ref VaaniHttpApi
-            Path: /script/plan
+            Path: /api/script/plan
             Method: POST
     Metadata:
       BuildMethod: esbuild
@@ -144,7 +155,7 @@ Resources:
           Type: HttpApi
           Properties:
             ApiId: !Ref VaaniHttpApi
-            Path: /script/write-scene
+            Path: /api/script/write-scene
             Method: POST
     Metadata:
       BuildMethod: esbuild
@@ -169,7 +180,7 @@ Resources:
           Type: HttpApi
           Properties:
             ApiId: !Ref VaaniHttpApi
-            Path: /script/scene
+            Path: /api/script/scene
             Method: POST
     Metadata:
       BuildMethod: esbuild
@@ -192,7 +203,7 @@ Resources:
           Type: HttpApi
           Properties:
             ApiId: !Ref VaaniHttpApi
-            Path: /script/lock
+            Path: /api/script/lock
             Method: POST
     Metadata:
       BuildMethod: esbuild
@@ -223,7 +234,7 @@ Resources:
           Type: HttpApi
           Properties:
             ApiId: !Ref VaaniHttpApi
-            Path: /narrate
+            Path: /api/narrate
             Method: POST
     Metadata:
       BuildMethod: esbuild
@@ -343,7 +354,7 @@ Resources:
           Type: HttpApi
           Properties:
             ApiId: !Ref VaaniHttpApi
-            Path: /render
+            Path: /api/render
             Method: POST
     Metadata:
       BuildMethod: esbuild
@@ -366,7 +377,7 @@ Resources:
           Type: HttpApi
           Properties:
             ApiId: !Ref VaaniHttpApi
-            Path: /render/{scriptId}/status
+            Path: /api/render/{scriptId}/status
             Method: GET
     Metadata:
       BuildMethod: esbuild
@@ -389,7 +400,7 @@ Resources:
           Type: HttpApi
           Properties:
             ApiId: !Ref VaaniHttpApi
-            Path: /recording/upload-url
+            Path: /api/recording/upload-url
             Method: POST
     Metadata:
       BuildMethod: esbuild
@@ -404,12 +415,22 @@ Resources:
     Properties:
       Handler: transcribe.handler
       CodeUri: src
-      Timeout: 60
+      # Runs the transcription in the background (see handlers/transcribe.ts), so this
+      # is the Whisper call plus its retries, not an API Gateway wait.
+      Timeout: 180
       Environment:
         Variables:
           STT_PROVIDER: "groq"
           GROQ_API_KEY: !Ref GroqApiKey
+      # The API call hands the work to a background run of this same function.
+      # Async runs are not retried: a failure is stored and shown, not repeated.
+      EventInvokeConfig:
+        MaximumRetryAttempts: 0
       Policies:
+        - Statement:
+            - Effect: Allow
+              Action: lambda:InvokeFunction
+              Resource: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${AWS::StackName}-TranscribeFunction-*"
         - S3CrudPolicy:
             BucketName: !Ref VaaniBucket
         - Statement:
@@ -423,7 +444,7 @@ Resources:
           Type: HttpApi
           Properties:
             ApiId: !Ref VaaniHttpApi
-            Path: /transcribe
+            Path: /api/transcribe
             Method: POST
     Metadata:
       BuildMethod: esbuild
@@ -453,7 +474,7 @@ Resources:
           Type: HttpApi
           Properties:
             ApiId: !Ref VaaniHttpApi
-            Path: /transcribe/{scriptId}/{sceneId}/status
+            Path: /api/transcribe/{scriptId}/{sceneId}/status
             Method: GET
     Metadata:
       BuildMethod: esbuild
@@ -483,7 +504,7 @@ Resources:
           Type: HttpApi
           Properties:
             ApiId: !Ref VaaniHttpApi
-            Path: /sync
+            Path: /api/sync
             Method: POST
     Metadata:
       BuildMethod: esbuild
@@ -506,7 +527,7 @@ Resources:
           Type: HttpApi
           Properties:
             ApiId: !Ref VaaniHttpApi
-            Path: /projects
+            Path: /api/projects
             Method: GET
     Metadata:
       BuildMethod: esbuild
@@ -529,7 +550,7 @@ Resources:
           Type: HttpApi
           Properties:
             ApiId: !Ref VaaniHttpApi
-            Path: /projects/{scriptId}
+            Path: /api/projects/{scriptId}
             Method: GET
     Metadata:
       BuildMethod: esbuild
@@ -538,6 +559,34 @@ Resources:
         Target: node24
         EntryPoints:
           - handlers/projects.ts
+
+  # ---------------------------------------------------------------- web app
+  # The built frontend is served by a small Lambda behind the same HTTP API
+  # that serves /api/*, so the browser talks to one https origin: no CORS, no
+  # API base URL, and https (which the camera, microphone and screen capture
+  # need). CloudFront would be the usual choice, but this account can't create
+  # CloudFront resources until AWS verifies it. The build lives in site/dist
+  # (run `npm run build:site` before `sam build`).
+  SiteFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: index.handler
+      CodeUri: site
+      Timeout: 10
+      MemorySize: 256
+      Events:
+        Root:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref VaaniHttpApi
+            Path: /
+            Method: GET
+        Everything:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref VaaniHttpApi
+            Path: /{proxy+}
+            Method: GET
 
 Outputs:
   ApiUrl:
@@ -548,3 +597,6 @@ Outputs:
   RenderRepositoryUri:
     Description: Push the render container image here before the render step will work
     Value: !GetAtt RenderRepository.RepositoryUri
+  SiteUrl:
+    Description: The live web app (also the API, under /api)
+    Value: !Sub "https://${VaaniHttpApi}.execute-api.${AWS::Region}.amazonaws.com"

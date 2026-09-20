@@ -4,10 +4,14 @@ import {
   TARGET_MINUTES_OPTIONS,
   VIDEO_FORMAT_LIST,
   VIDEO_FORMATS,
+  SCRIPT_LANGUAGE_LIST,
+  SCRIPT_LANGUAGES,
+  DEFAULT_SCRIPT_LANGUAGE,
   countWords,
   estimateSeconds,
   formatDuration,
   minutesLabel,
+  type ScriptLanguage,
   type VideoFormatId,
 } from "@vaani/shared";
 import { Button } from "@/components/ui/button";
@@ -31,7 +35,7 @@ export interface GenerateStatus {
 }
 
 interface RepoFormProps {
-  onSubmit: (repoUrl: string, userContext: string, format: VideoFormatId, options: { targetMinutes?: number; sourceScript?: string }) => void;
+  onSubmit: (repoUrl: string, userContext: string, format: VideoFormatId, options: { language: ScriptLanguage; targetMinutes?: number; sourceScript?: string }) => void;
   status: GenerateStatus | null;
 }
 
@@ -66,6 +70,7 @@ function progressCopy(status: GenerateStatus): { label: string; detail: string; 
 export function RepoForm({ onSubmit, status }: RepoFormProps) {
   const [repoUrl, setRepoUrl] = useState("");
   const [userContext, setUserContext] = useState("");
+  const [language, setLanguage] = useState<ScriptLanguage>(DEFAULT_SCRIPT_LANGUAGE);
   const [format, setFormat] = useState<VideoFormatId>("hackathon_demo");
   const [minutes, setMinutes] = useState<number>(VIDEO_FORMATS.hackathon_demo.defaultMinutes);
   const [sourceScript, setSourceScript] = useState("");
@@ -77,6 +82,7 @@ export function RepoForm({ onSubmit, status }: RepoFormProps) {
     e.preventDefault();
     if (!repoUrl.trim()) return;
     onSubmit(repoUrl.trim(), userContext.trim(), format, {
+      language,
       targetMinutes: hasOwnScript ? undefined : minutes,
       sourceScript: hasOwnScript ? sourceScript.trim() : undefined,
     });
@@ -130,6 +136,20 @@ export function RepoForm({ onSubmit, status }: RepoFormProps) {
                 Use vercel/ms
               </Button>
             </div>
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <Label id="language-label">Script language</Label>
+            <Tabs value={language} onValueChange={(value) => setLanguage(value as ScriptLanguage)} aria-labelledby="language-label">
+              <TabsList>
+                {SCRIPT_LANGUAGE_LIST.map((l) => (
+                  <TabsTrigger key={l.id} value={l.id} disabled={busy}>
+                    {l.name}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            </Tabs>
+            <p className="text-xs text-muted-foreground">{SCRIPT_LANGUAGES[language].description}</p>
           </div>
 
           <div className="flex flex-col gap-2">

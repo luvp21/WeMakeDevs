@@ -159,6 +159,7 @@ export default function Studio() {
       const result = await api.regenerateScene({
         ingest: ingestResult,
         format: script.format,
+        language: script.language,
         userContext: script.user_context,
         sceneTitle: scene?.title ?? "",
         narration: text,
@@ -187,6 +188,7 @@ export default function Studio() {
       const result = await api.regenerateScene({
         ingest: ingestResult,
         format: script.format,
+        language: script.language,
         userContext: script.user_context,
         sceneTitle: scene?.title ?? "",
         narration: text,

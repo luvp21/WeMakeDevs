@@ -7,9 +7,11 @@
 // system boundaries (API request bodies, Bedrock tool-use output).
 import { z } from "zod";
 import { VideoFormatIdSchema } from "./formats.js";
+import { ScriptLanguageSchema } from "./languages.js";
 
 export * from "./storageKeys.js";
 export * from "./formats.js";
+export * from "./languages.js";
 export * from "./duration.js";
 export * from "./visualDesign.js";
 
@@ -112,6 +114,8 @@ export const ScriptSchema = z.object({
   user_context: z.string(),
   // Which kind of video this is (see formats.ts). Old scripts predate it.
   format: VideoFormatIdSchema.default("code_walkthrough"),
+  // Language the narration is written and spoken in. Old scripts are Hinglish.
+  language: ScriptLanguageSchema.default("hinglish"),
   scenes: z.array(SceneSchema),
 });
 export type Script = z.infer<typeof ScriptSchema>;
@@ -207,6 +211,7 @@ export const ScriptGenRequestSchema = z.object({
   ingest: IngestResultSchema,
   user_context: z.string().default(""),
   format: VideoFormatIdSchema.default("code_walkthrough"),
+  language: ScriptLanguageSchema.default("hinglish"),
   // How long the finished video should be. Sets the narration word budget.
   target_minutes: z.number().min(0.25).max(10).optional(),
   // A script the user already wrote. When present the visuals are built around
@@ -235,6 +240,7 @@ export type ScriptPlanResponse = z.infer<typeof ScriptPlanResponseSchema>;
 export const WriteSceneRequestSchema = z.object({
   ingest: IngestResultSchema,
   format: VideoFormatIdSchema.default("code_walkthrough"),
+  language: ScriptLanguageSchema.default("hinglish"),
   user_context: z.string().default(""),
   outline: z.array(PlannedSceneSchema).min(1).max(16),
   index: z.number().int().min(0),
@@ -246,6 +252,7 @@ export type WriteSceneRequest = z.infer<typeof WriteSceneRequestSchema>;
 export const SceneGenRequestSchema = z.object({
   ingest: IngestResultSchema,
   format: VideoFormatIdSchema.default("code_walkthrough"),
+  language: ScriptLanguageSchema.default("hinglish"),
   user_context: z.string().default(""),
   scene_title: z.string().default(""),
   narration: z.string().min(1).max(6000),
@@ -339,6 +346,9 @@ export const RecordingUploadUrlRequestSchema = z.object({
   script_id: z.string(),
   scene_id: z.string(),
   content_type: z.string(),
+  // Set for a demo clip (one ui_demo beat's screen recording) instead of the
+  // scene's narration take.
+  beat_id: z.string().optional(),
 });
 export type RecordingUploadUrlRequest = z.infer<typeof RecordingUploadUrlRequestSchema>;
 

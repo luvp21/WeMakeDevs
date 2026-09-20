@@ -1,9 +1,10 @@
 import path from "node:path";
-import { recordingKey, type LockedScript, type SceneCheckpoints } from "@vaani/shared";
-import { downloadToFile } from "./s3.js";
+import { clipKey, clipSpeed, recordingKey, type LockedScript, type SceneCheckpoints } from "@vaani/shared";
+import { downloadIfExists, downloadToFile } from "./s3.js";
 import { demoFrameHtml } from "@vaani/shared";
 import { beatVisualHtml, chromeFor } from "./visuals.js";
-import { getMediaDurationMs } from "./ffmpeg.js";
+import { getMediaDurationMs, hasVideoStream } from "./ffmpeg.js";
+import { overlayFace } from "./faceOverlay.js";
 import { assembleScene, frameCounts, renderBeatClip, renderFootageClip } from "./beatClip.js";
 
 // Minimum on-screen hold per beat, inspired by /brag's pacing rule ("~0.8s
@@ -27,11 +28,10 @@ const MIN_BEAT_HOLD_SECONDS = 0.8;
 // Real-recording render path (CLAUDE.md #1's primary path, not the Polly
 // fallback): visuals cut in full-screen at each beat's real sync checkpoint,
 // with the scene's actual recorded audio (the presenter's real voice)
-// playing throughout — see docs/ARCHITECTURE.md's "cut/overlay visuals at
-// the checkpoint timestamps." Picture-in-picture / face-visible-alongside-
-// visual treatment is explicitly cosmetic per docs/FEATURES.md and not done
-// here; this is the must-have baseline. Each beat is an animated clip
-// (beatClip.ts) so a cut lands as an entrance, not a hard jump.
+// playing throughout, and the presenter's face in a bubble over it (faceOverlay.ts).
+// Product-demo beats show the presenter's own silent screen clip for that step,
+// recorded separately from the narration so the app can use the mic. Each beat
+// is an animated clip (beatClip.ts) so a cut lands as an entrance, not a hard jump.
 export async function renderSceneFromRecording(
   locked: LockedScript,
   sceneCheckpoints: SceneCheckpoints,
@@ -58,6 +58,10 @@ export async function renderSceneFromRecording(
   const recordingPath = path.join(workDir, `${sceneId}-recording.webm`);
   await downloadToFile(recordingKey(locked.script_id, sceneId, "webm"), recordingPath);
   const recordingDurationMs = await getMediaDurationMs(recordingPath);
+  // The narration take is camera + mic, so it is also where the face comes
+  // from. No video track (camera denied, audio-only) just means no bubble.
+  const facePath = (await hasVideoStream(recordingPath)) ? recordingPath : null;
+  const hasFace = facePath !== null;
 
   const durations = scene.beats.map((_, i) => {
     // The first beat owns everything before the first spoken word (the
@@ -70,36 +74,49 @@ export async function renderSceneFromRecording(
   });
   const frames = frameCounts(durations);
 
-  // Start time of each beat within the recording, for cutting demo footage.
-  const startsSeconds: number[] = [];
-  durations.reduce((elapsed, d) => {
-    startsSeconds.push(elapsed);
-    return elapsed + d;
-  }, 0);
-
   const clipPaths: string[] = [];
   for (let i = 0; i < scene.beats.length; i++) {
     const beat = scene.beats[i];
-    const chrome = chromeFor(scenes, sceneIndex, i);
+    const chrome = chromeFor(scenes, sceneIndex, i, hasFace);
     if (beat.visual_spec.visual_type === "ui_demo") {
-      // The presenter showed the product during this beat: use that footage.
-      clipPaths.push(
-        await renderFootageClip({
-          frameHtml: demoFrameHtml(beat.visual_spec.note || "Live demo", chrome),
-          recordingPath,
-          startSeconds: startsSeconds[i],
-          frames: frames[i],
-          workDir,
-          id: beat.id,
-        }),
-      );
-      continue;
+      const footage = await fetchDemoClip(locked.script_id, beat.id, workDir);
+      if (footage) {
+        // The presenter's own silent screen clip for this step.
+        const clipSeconds = (await getMediaDurationMs(footage)) / 1000;
+        clipPaths.push(
+          await renderFootageClip({
+            frameHtml: demoFrameHtml(beat.visual_spec.note || "Live demo", chrome),
+            hasFace,
+            clipPath: footage,
+            speed: clipSpeed(clipSeconds, durations[i]),
+            frames: frames[i],
+            workDir,
+            id: beat.id,
+          }),
+        );
+        continue;
+      }
+      // No clip was recorded for this step: fall through to the text card
+      // saying what the viewer would have seen.
     }
     const html = await beatVisualHtml(beat, locked.ingest, chrome);
     clipPaths.push(await renderBeatClip({ html, frames: frames[i], workDir, id: beat.id }));
   }
 
   const sceneVideoPath = path.join(workDir, `${sceneId}.mp4`);
-  await assembleScene({ clipPaths, audioPath: recordingPath, outPath: sceneVideoPath, workDir, sceneId });
+  if (!facePath) {
+    await assembleScene({ clipPaths, audioPath: recordingPath, outPath: sceneVideoPath, workDir, sceneId });
+    return sceneVideoPath;
+  }
+  const bareScenePath = path.join(workDir, `${sceneId}-bare.mp4`);
+  await assembleScene({ clipPaths, audioPath: recordingPath, outPath: bareScenePath, workDir, sceneId });
+  await overlayFace({ scenePath: bareScenePath, facePath, outPath: sceneVideoPath });
   return sceneVideoPath;
+}
+
+// The step's screen clip, if the presenter recorded one. A skipped step is not
+// an error: it renders as a text card.
+async function fetchDemoClip(scriptId: string, beatId: string, workDir: string): Promise<string | null> {
+  const clipPath = path.join(workDir, `${beatId}-clip.webm`);
+  return (await downloadIfExists(clipKey(scriptId, beatId, "webm"), clipPath)) ? clipPath : null;
 }

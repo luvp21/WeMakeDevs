@@ -14,7 +14,7 @@ export const planHandler: APIGatewayProxyHandlerV2 = async (event) => {
     const scenes = await planScript(parsed.ingest, parsed.user_context, parsed.format, {
       targetMinutes: parsed.target_minutes,
       sourceScript: parsed.source_script?.trim() || undefined,
-    });
+    }, parsed.language);
     return { statusCode: 200, body: JSON.stringify({ scenes }) };
   } catch (err) {
     return failure(err);
@@ -27,6 +27,7 @@ export const writeSceneHandler: APIGatewayProxyHandlerV2 = async (event) => {
     const result = await writePlannedScene({
       ingest: parsed.ingest,
       format: parsed.format,
+      language: parsed.language,
       userContext: parsed.user_context,
       outline: parsed.outline,
       index: parsed.index,

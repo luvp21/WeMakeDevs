@@ -128,13 +128,19 @@ export async function beatVisualHtml(beat: Beat, ingest: IngestResult, chrome?: 
 }
 
 // Builds the bottom-bar info for one beat from where it sits in the script.
-export function chromeFor(scenes: { title: string; beats: unknown[] }[], sceneIndex: number, beatIndex: number): BeatChrome {
+export function chromeFor(
+  scenes: { title: string; beats: unknown[] }[],
+  sceneIndex: number,
+  beatIndex: number,
+  hasFace = false,
+): BeatChrome {
   return {
     sceneTitle: scenes[sceneIndex].title,
     sceneIndex,
     sceneCount: scenes.length,
     beatIndex,
     beatCount: scenes[sceneIndex].beats.length,
+    hasFace,
   };
 }
 

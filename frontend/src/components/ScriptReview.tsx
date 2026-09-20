@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { ArrowRight, Lock, LockKeyhole, PenLine, RefreshCw } from "lucide-react";
-import { countWords, estimateSeconds, formatDuration } from "@vaani/shared";
+import { SCRIPT_LANGUAGES, countWords, estimateSeconds, formatDuration } from "@vaani/shared";
 import type { Beat, IngestResult, Scene, Script, VisualSpec } from "@vaani/shared";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -283,7 +283,7 @@ export function ScriptReview({
 
       <div className="sticky bottom-4 z-10 flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-popover/95 px-4 py-3 shadow-lg shadow-black/30 backdrop-blur">
         <p className="text-sm text-muted-foreground tabular">
-          {script.scenes.length} scenes, {beatCount} beats, {totalWords} words, about {formatDuration(totalSeconds)}.{" "}
+          {SCRIPT_LANGUAGES[script.language].name}, {script.scenes.length} scenes, {beatCount} beats, {totalWords} words, about {formatDuration(totalSeconds)}.{" "}
           {isLocked ? "Locked. Recording reads from this version." : "Edit anything, then lock it before recording."}
         </p>
         {isLocked ? (

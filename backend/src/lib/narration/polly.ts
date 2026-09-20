@@ -1,3 +1,4 @@
+import type { ScriptLanguage } from "@vaani/shared";
 import { PollyClient, SynthesizeSpeechCommand } from "@aws-sdk/client-polly";
 
 const client = new PollyClient({});
@@ -10,11 +11,14 @@ function engine(): "neural" | "generative" {
   return process.env.POLLY_ENGINE === "generative" ? "generative" : "neural";
 }
 
-export async function synthesizeSpeech(text: string): Promise<Buffer> {
+// Kajal reads both Hindi/English mixes and plain Indian English; for an English
+// script the language code is pinned so she doesn't guess at Hindi.
+export async function synthesizeSpeech(text: string, language: ScriptLanguage = "hinglish"): Promise<Buffer> {
   const res = await client.send(
     new SynthesizeSpeechCommand({
       Text: text,
       VoiceId: VOICE_ID,
+      ...(language === "en" ? { LanguageCode: "en-IN" as const } : {}),
       Engine: engine(),
       OutputFormat: "mp3",
     }),

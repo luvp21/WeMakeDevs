@@ -39,6 +39,18 @@ export async function downloadToFile(key: string, destPath: string): Promise<voi
   await pipeline(res.Body as Readable, createWriteStream(destPath));
 }
 
+// Downloads the object if it exists; false when there is nothing at the key.
+export async function downloadIfExists(key: string, destPath: string): Promise<boolean> {
+  try {
+    await downloadToFile(key, destPath);
+    return true;
+  } catch (err) {
+    const name = (err as { name?: string }).name;
+    if (name === "NoSuchKey" || name === "NotFound") return false;
+    throw err;
+  }
+}
+
 export async function putFile(key: string, filePath: string, contentType: string): Promise<void> {
   const { readFile } = await import("node:fs/promises");
   const body = await readFile(filePath);

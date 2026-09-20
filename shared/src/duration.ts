@@ -27,3 +27,19 @@ export const TARGET_MINUTES_OPTIONS = [0.5, 1, 2, 3, 5] as const;
 export function minutesLabel(minutes: number): string {
   return minutes < 1 ? `${Math.round(minutes * 60)} sec` : `${minutes} min`;
 }
+
+// A demo clip is rarely exactly as long as the narration over it. A shorter
+// clip plays at normal speed and holds its last frame. A longer one is sped up
+// so the WHOLE clip fits: the end of a clip is usually the result the step is
+// about, so it is never cut off. The clip is squeezed into most of the beat
+// (RESULT_HOLD_SHARE) so the result stays on screen for the rest of it.
+export const RESULT_HOLD_SHARE = 0.85;
+
+// Past this speed the footage stops being readable; the recorder warns the
+// presenter to trim or re-record (the render still shows all of it).
+export const WARN_CLIP_SPEED = 6;
+
+export function clipSpeed(clipSeconds: number, beatSeconds: number): number {
+  if (!(clipSeconds > 0) || !(beatSeconds > 0) || clipSeconds <= beatSeconds) return 1;
+  return clipSeconds / (beatSeconds * RESULT_HOLD_SHARE);
+}

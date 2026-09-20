@@ -18,7 +18,19 @@ export interface BeatChrome {
   sceneCount: number;
   beatIndex: number;
   beatCount: number;
+  // The presenter's face is added over the finished frame (bottom-right). Set
+  // when it will be, so the visual leaves room for it.
+  hasFace?: boolean;
 }
+
+// The presenter's round camera bubble, in frame pixels. The renderer overlays
+// the video here; the page itself only draws the ring behind it.
+export const FACE_BUBBLE = { x: 1077, y: 472, size: 176 } as const;
+// With a face, the visual is drawn a little smaller and centered in the
+// space left of the bubble column, so nothing runs under the bubble. Scaling
+// the whole stage (instead of narrowing it) keeps diagrams and code undistorted.
+const FACE_STAGE_SCALE = 0.82;
+const FACE_STAGE_TOP = Math.round((FRAME_HEIGHT - CHROME_HEIGHT) * (1 - FACE_STAGE_SCALE) / 2);
 
 export function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -178,13 +190,28 @@ export function chromeHtml(chrome: BeatChrome | undefined): string {
   </div>`;
 }
 
-export function pageHtml(stageHtml: string, chrome: BeatChrome | undefined, extraCss = ""): string {
+// `scaleStage: false` is for pages that place their own content around the
+// bubble (the demo frame) instead of being shrunk to make room.
+export function pageHtml(
+  stageHtml: string,
+  chrome: BeatChrome | undefined,
+  extraCss = "",
+  options: { scaleStage?: boolean } = {},
+): string {
+  const face = chrome?.hasFace === true;
+  const scaleStage = face && options.scaleStage !== false;
+  const faceCss = face
+    ? `
+    .face-ring { position: absolute; left: ${FACE_BUBBLE.x}px; top: ${FACE_BUBBLE.y}px; width: ${FACE_BUBBLE.size}px; height: ${FACE_BUBBLE.size}px; border-radius: 50%; background: #0e1014; box-shadow: 0 0 0 3px rgba(255,255,255,0.16), 0 18px 50px rgba(0,0,0,0.55); }
+    ${scaleStage ? `.stage { inset: auto; left: 0; top: ${FACE_STAGE_TOP}px; width: ${FRAME_WIDTH}px; height: ${FRAME_HEIGHT - CHROME_HEIGHT}px; transform: scale(${FACE_STAGE_SCALE}); transform-origin: 0 0; }` : ""}`
+    : "";
   return `<!doctype html><html><head><meta charset="utf-8"><style>
     * { box-sizing: border-box; }
     html, body { margin: 0; width: ${FRAME_WIDTH}px; height: ${FRAME_HEIGHT}px; overflow: hidden; }
     ${DESIGN_SYSTEM_CSS}
     ${extraCss}
-  </style></head><body><div class="stage">${stageHtml}</div>${chromeHtml(chrome)}</body></html>`;
+    ${faceCss}
+  </style></head><body><div class="stage">${stageHtml}</div>${face ? '<div class="face-ring"></div>' : ""}${chromeHtml(chrome)}</body></html>`;
 }
 
 export function slideHtml(innerHtml: string, chrome: BeatChrome | undefined): string {
@@ -387,19 +414,28 @@ export function chartHtml(spec: ChartSpec, chrome: BeatChrome | undefined): stri
 // stage). The renderer draws this frame as a still, then overlays the screen
 // recording onto DEMO_WINDOW with ffmpeg.
 export const DEMO_WINDOW = { x: 128, y: 66, w: 1024, h: 576 } as const;
+// With the presenter's bubble on screen the window moves left and shrinks so
+// the bubble sits in the free column beside it. Still 16:9.
+export const DEMO_WINDOW_WITH_FACE = { x: 48, y: 70, w: 960, h: 540 } as const;
+
+export function demoWindow(hasFace: boolean): { x: number; y: number; w: number; h: number } {
+  return hasFace ? DEMO_WINDOW_WITH_FACE : DEMO_WINDOW;
+}
 
 // windowLabel is for the review page only: it tells the reviewer what will fill
 // the window. The renderer leaves it out (footage is overlaid on the window, and
 // a label would show through any letterbox bars).
 export function demoFrameHtml(caption: string, chrome: BeatChrome | undefined, windowLabel?: string): string {
   const label = windowLabel ? `<div class="demo-label">${escapeHtml(windowLabel)}</div>` : "";
+  const win = demoWindow(chrome?.hasFace === true);
   return pageHtml(
     `<div class="demo-title">${escapeHtml(caption)}</div><div class="demo-window">${label}</div>`,
     chrome,
     `
-    .demo-title { top: 24px; left: ${DEMO_WINDOW.x}px; font-size: 20px; max-width: ${DEMO_WINDOW.w}px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .demo-title { top: 24px; left: ${win.x}px; font-size: 20px; max-width: ${win.w}px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .demo-label { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #9199a8; font-size: 30px; text-align: center; padding: 0 80px; }
-    .demo-window { position: absolute; left: ${DEMO_WINDOW.x}px; top: ${DEMO_WINDOW.y}px; width: ${DEMO_WINDOW.w}px; height: ${DEMO_WINDOW.h}px; border-radius: 14px; background: #0e1014; outline: 1px solid rgba(255,255,255,0.14); box-shadow: 0 30px 80px rgba(0,0,0,0.55); }
+    .demo-window { position: absolute; left: ${win.x}px; top: ${win.y}px; width: ${win.w}px; height: ${win.h}px; border-radius: 14px; background: #0e1014; outline: 1px solid rgba(255,255,255,0.14); box-shadow: 0 30px 80px rgba(0,0,0,0.55); }
   `,
+    { scaleStage: false },
   );
 }

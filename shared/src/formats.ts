@@ -68,7 +68,7 @@ export const VIDEO_FORMATS: Record<VideoFormatId, VideoFormat> = {
     ],
     visualMix:
       "Big-statement slides for the hook and close, ui_demo beats for the product (about 30%), one diagram, at most two code beats, and a chart only if the repo or the user's notes contain real numbers.",
-    tone: "Confident and energetic, judges as the audience. Show, don't tell. Short sentences, concrete nouns, no filler like 'in this video'.",
+    tone: "Clear and confident, judges as the audience, never salesy. Show, don't tell. Short sentences, concrete nouns, no filler like 'in this video'.",
   },
   product_demo: {
     id: "product_demo",

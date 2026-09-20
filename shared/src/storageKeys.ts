@@ -27,6 +27,13 @@ export function recordingKey(scriptId: string, sceneId: string, extension: strin
   return `recordings/${scriptId}/${sceneId}.${extension}`;
 }
 
+// A silent screen clip of one product-demo step (one ui_demo beat), recorded on
+// its own before the narration. Kept out of recordings/ so it is never mistaken
+// for a scene's narration take.
+export function clipKey(scriptId: string, beatId: string, extension: string): string {
+  return `clips/${scriptId}/${beatId}.${extension}`;
+}
+
 export function transcribeOutputKey(scriptId: string, sceneId: string): string {
   return `transcripts/${scriptId}/${sceneId}/output.json`;
 }

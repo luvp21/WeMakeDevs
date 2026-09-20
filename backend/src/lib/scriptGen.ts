@@ -5,6 +5,8 @@ import {
   ScriptPlanResponseSchema,
   VIDEO_FORMATS,
   WORDS_PER_MINUTE,
+  DEFAULT_SCRIPT_LANGUAGE,
+  SCRIPT_LANGUAGES,
   countWords,
   escapeHtml,
   minutesLabel,
@@ -16,12 +18,15 @@ import {
   type Scene,
   type SceneGenResponse,
   type Script,
+  type ScriptLanguage,
   type VideoFormatId,
   type VisualSpec,
 } from "@vaani/shared";
 import { z } from "zod";
 import { getLlmClient, type ToolDefinition } from "./llm/index.js";
 import { HINGLISH_EXAMPLE_LINES } from "./prompts/hinglishExamples.js";
+import { ENGLISH_EXAMPLE_LINES } from "./prompts/englishExamples.js";
+import { cleanNarration, machineWritingHits, spokenStyleRules } from "./prompts/spokenStyle.js";
 
 // Kept to 5 properties on purpose — Gemini's forced function-calling (mode:
 // ANY) rejects object schemas with 8+ properties with a bare 400
@@ -32,7 +37,7 @@ const BEAT_ITEM_SCHEMA = {
   properties: {
     text: {
       type: "string",
-      description: "One beat's narration line, natural Hinglish (code-switched Hindi/English), not formal Hindi.",
+      description: "One beat's narration line, in the language and register the system prompt asks for. Latin letters only.",
     },
     visual_type: {
       type: "string",
@@ -195,10 +200,20 @@ interface GenerationOptions {
   sourceScript?: string;
 }
 
-const REGISTER_LINES = [
-  "Register: natural Hinglish — code-switched Hindi/English the way an Indian developer actually talks, not formal or translated-sounding Hindi. Write in Latin letters only (never Devanagari). Keep English technical terms in English. Match the register of these real example lines:",
-  ...HINGLISH_EXAMPLE_LINES.map((line) => `- ${line}`),
-];
+// The narration's language and register. Both are Latin letters only, so the
+// teleprompter, transcript matching and sync behave the same for either.
+export function registerLines(language: ScriptLanguage): string[] {
+  if (language === "en") {
+    return [
+      "Language: English only, no Hindi words. Register: conversational and clear, the way a developer talks a viewer through their own project, not formal or brochure-like. Keep it easy to say aloud for someone whose first language may not be English: short sentences, plain words, technical terms kept as they are. Match the register of these example lines:",
+      ...ENGLISH_EXAMPLE_LINES.map((line) => `- ${line}`),
+    ];
+  }
+  return [
+    "Register: natural Hinglish, code-switched Hindi/English the way an Indian developer actually talks, not formal or translated-sounding Hindi. Write in Latin letters only (never Devanagari). Keep English technical terms in English. Match the register of these real example lines:",
+    ...HINGLISH_EXAMPLE_LINES.map((line) => `- ${line}`),
+  ];
+}
 
 const VISUAL_RULES = [
   "Structure: scenes contain beats. A beat is one visual state: one thing on screen while a chunk of narration plays. Every beat needs a visual_type:",
@@ -233,13 +248,14 @@ function formatContextLines(formatId: VideoFormatId): string[] {
 }
 
 // Stage 1: decide the shape of the whole video before writing any of it.
-function buildPlanSystemPrompt(formatId: VideoFormatId, budgetWords: number): string {
+function buildPlanSystemPrompt(formatId: VideoFormatId, budgetWords: number, language: ScriptLanguage): string {
   const format = VIDEO_FORMATS[formatId];
   const count = sceneCountFor(budgetWords);
   return [
     `You plan a "${format.name}" video (${format.tagline}). Do not write the narration yet: produce the outline, one entry per scene.`,
     "",
     `Tone the scenes will be written in: ${format.tone}`,
+    `Narration language: ${SCRIPT_LANGUAGES[language].name}. Write titles and purposes in English.`,
     "",
     "Suggested scene outline for this format. Follow its order and intent, stretching or splitting steps to fit the requested length and the actual repo:",
     ...format.scenes.map((scene, i) => `${i + 1}. ${scene.title}: ${scene.purpose}`),
@@ -248,32 +264,36 @@ function buildPlanSystemPrompt(formatId: VideoFormatId, budgetWords: number): st
     "",
     `Length: the whole video should be about ${minutesLabel(budgetWords / WORDS_PER_MINUTE)} at ${WORDS_PER_MINUTE} spoken words per minute, so the target_words of all scenes must add up to about ${budgetWords}. Plan about ${count} scenes (each roughly ${Math.round(budgetWords / count)} words), giving the more important scenes more words.`,
     "",
+    "Scene titles show on screen: plain and short (2 to 5 words), no colons, ampersands or clichés like 'Under the Hood'.",
+    "",
     "For each scene's purpose, name the concrete repo material it will use (real function names, files, behavior) so the writer of that scene has what it needs. Charts are only allowed where the repo or the user's notes contain real numbers; never plan an invented metric.",
   ].join("\n");
 }
 
 // Stage 2: write one scene, knowing the whole outline so it doesn't repeat or contradict the others.
-function buildWriteSystemPrompt(formatId: VideoFormatId): string {
+function buildWriteSystemPrompt(formatId: VideoFormatId, language: ScriptLanguage): string {
   const format = VIDEO_FORMATS[formatId];
   return [
     `You write ONE scene of a "${format.name}" video. The other scenes are written separately, so follow your scene's brief and length exactly.`,
     "",
     `Tone: ${format.tone}`,
     "",
-    ...REGISTER_LINES,
+    ...registerLines(language),
+    "",
+    ...spokenStyleRules(language),
     "",
     ...formatContextLines(formatId),
     "",
     ...VISUAL_RULES,
     "",
-    "Keep every beat's narration to roughly one breath (about 12 to 25 words). Do not open with a greeting or 'in this video' unless you are told this is the first scene, and do not summarize the video unless this is the last scene.",
+    "Keep every beat's narration short enough for one breath (about 12 to 25 words, one to three short sentences). Do not open with a greeting or 'in this video' unless you are told this is the first scene, and do not summarize the video unless this is the last scene.",
   ].join("\n");
 }
 
-function buildSceneSystemPrompt(formatId: VideoFormatId, mode: "scene" | "beat"): string {
+function buildSceneSystemPrompt(formatId: VideoFormatId, mode: "scene" | "beat", language: ScriptLanguage): string {
   const format = VIDEO_FORMATS[formatId];
   return [
-    `You build the visuals for part of a "${format.name}" video. The user has written or edited the narration; KEEP THEIR WORDING EXACTLY (only convert Devanagari to Latin letters). Do not add, drop or rephrase sentences.`,
+    `You build the visuals for part of a "${format.name}" video. The user has written or edited the narration; KEEP THEIR WORDING EXACTLY (only convert Devanagari to Latin letters if any appears). Do not add, drop or rephrase sentences.`,
     "",
     mode === "beat"
       ? "Return exactly ONE beat whose text is the narration given, with the visual_type that best supports it."
@@ -282,7 +302,7 @@ function buildSceneSystemPrompt(formatId: VideoFormatId, mode: "scene" | "beat")
     `Visual mix for this format: ${format.visualMix}`,
     format.screenShare === "none" ? "Do not use ui_demo beats." : "ui_demo beats are allowed when the narration is about showing the product.",
     "",
-    REGISTER_LINES[0],
+    registerLines(language)[0],
     "",
     ...VISUAL_RULES,
   ].join("\n");
@@ -330,8 +350,8 @@ function idGenerator(prefix = ""): IdGenerator {
   };
 }
 
-function toBeat(raw: RawBeat, id: string): Beat {
-  return { id, text: raw.text, visual_type: raw.visual_type, visual_spec: buildVisualSpec(raw) };
+function toBeat(raw: RawBeat, id: string, clean = false): Beat {
+  return { id, text: clean ? cleanNarration(raw.text) : raw.text, visual_type: raw.visual_type, visual_spec: buildVisualSpec(raw) };
 }
 
 function scriptWordCount(scenes: { beats: { text: string }[] }[]): number {
@@ -446,13 +466,14 @@ export async function planScript(
   userContext: string,
   format: VideoFormatId,
   options: GenerationOptions,
+  language: ScriptLanguage = DEFAULT_SCRIPT_LANGUAGE,
 ): Promise<PlannedScene[]> {
   if (options.sourceScript) return planFromSourceScript(options.sourceScript);
 
   const minutes = options.targetMinutes ?? VIDEO_FORMATS[format].defaultMinutes;
   const budget = wordBudget(minutes);
   const toolInput = await getLlmClient().converseWithForcedTool({
-    system: buildPlanSystemPrompt(format, budget),
+    system: buildPlanSystemPrompt(format, budget, language),
     userMessage: buildUserMessage(ingest, userContext),
     tool: EMIT_OUTLINE_TOOL,
   });
@@ -473,17 +494,19 @@ function outlineLines(outline: PlannedScene[], index: number): string[] {
 export async function writePlannedScene(params: {
   ingest: IngestResult;
   format: VideoFormatId;
+  language?: ScriptLanguage;
   userContext: string;
   outline: PlannedScene[];
   index: number;
 }): Promise<SceneGenResponse> {
   const { ingest, format, userContext, outline, index } = params;
+  const language = params.language ?? DEFAULT_SCRIPT_LANGUAGE;
   const planned = outline[index];
   if (!planned) throw new Error(`No scene at index ${index}`);
 
   // The user's own narration: keep it verbatim, just build visuals around it.
   if (planned.source_text) {
-    return generateScene({ ingest, format, userContext, sceneTitle: planned.title, narration: planned.source_text, mode: "scene" });
+    return generateScene({ ingest, format, language, userContext, sceneTitle: planned.title, narration: planned.source_text, mode: "scene" });
   }
 
   const llm = getLlmClient();
@@ -502,7 +525,7 @@ export async function writePlannedScene(params: {
 
   async function attempt(note?: string) {
     const toolInput = await llm.converseWithForcedTool({
-      system: buildWriteSystemPrompt(format),
+      system: buildWriteSystemPrompt(format, language),
       userMessage: buildUserMessage(ingest, userContext, undefined, `${brief.join("\n")}${note ? `\n\n${note}` : ""}`),
       tool: EMIT_SCENE_TOOL,
     });
@@ -510,16 +533,30 @@ export async function writePlannedScene(params: {
   }
   const words = (raw: z.infer<typeof RawSceneOutputSchema>) => raw.beats.reduce((n, b) => n + countWords(b.text), 0);
 
-  let raw = await attempt();
   const target = planned.target_words;
-  if (words(raw) < target * 0.65 || words(raw) > target * 1.4) {
+  const styleHits = (raw: z.infer<typeof RawSceneOutputSchema>) => machineWritingHits([raw.title, ...raw.beats.map((b) => b.text)].join(" "));
+  const lengthOff = (raw: z.infer<typeof RawSceneOutputSchema>) => words(raw) < target * 0.65 || words(raw) > target * 1.4;
+  // Lower is better: every machine-sounding phrase counts, plus how far the length is off.
+  const penalty = (raw: z.infer<typeof RawSceneOutputSchema>) => styleHits(raw).length + (Math.abs(words(raw) - target) / target) * 5;
+
+  let raw = await attempt();
+  const notes: string[] = [];
+  if (lengthOff(raw)) {
     const direction = words(raw) > target ? "too long" : "too short";
-    const retry = await attempt(
+    notes.push(
       `Your previous draft of this scene was ${direction}: ${words(raw)} words, target about ${target}. Rewrite it to land between ${Math.round(target * 0.85)} and ${Math.round(target * 1.15)} words.`,
     );
-    if (Math.abs(words(retry) - target) < Math.abs(words(raw) - target)) raw = retry;
   }
-  return { title: raw.title || planned.title, beats: raw.beats.map((b) => toBeat(b, ids.beat())) };
+  const hits = styleHits(raw);
+  if (hits.length > 0) {
+    notes.push(`Your previous draft used machine-sounding wording (${hits.join(", ")}). Say the plain thing instead, in short spoken sentences.`);
+  }
+  // One retry covers both problems; keep whichever draft is better.
+  if (notes.length > 0) {
+    const retry = await attempt(notes.join("\n"));
+    if (penalty(retry) < penalty(raw)) raw = retry;
+  }
+  return { title: raw.title || planned.title, beats: raw.beats.map((b) => toBeat(b, ids.beat(), true)) };
 }
 
 // The whole pipeline in one call (used by /api/script and tests): plan, then
@@ -531,10 +568,11 @@ export async function generateScript(
   userContext: string,
   format: VideoFormatId = "code_walkthrough",
   options: GenerationOptions = {},
+  language: ScriptLanguage = DEFAULT_SCRIPT_LANGUAGE,
 ): Promise<Script> {
-  const outline = await planScript(ingest, userContext, format, options);
+  const outline = await planScript(ingest, userContext, format, options, language);
   const written = await mapWithConcurrency(outline, 3, (_, index) =>
-    writePlannedScene({ ingest, format, userContext, outline, index }),
+    writePlannedScene({ ingest, format, language, userContext, outline, index }),
   );
   const ids = idGenerator();
   const scenes: Scene[] = written.map((scene) => ({
@@ -542,7 +580,7 @@ export async function generateScript(
     title: scene.title,
     beats: scene.beats.map((beat) => ({ ...beat, id: ids.beat() })),
   }));
-  return { repo_url: ingest.repo_url, user_context: userContext, format, scenes };
+  return { repo_url: ingest.repo_url, user_context: userContext, format, language, scenes };
 }
 
 // Rebuilds one scene (or a single beat) from narration the user edited. The
@@ -551,18 +589,20 @@ export async function generateScript(
 export async function generateScene(params: {
   ingest: IngestResult;
   format: VideoFormatId;
+  language?: ScriptLanguage;
   userContext: string;
   sceneTitle: string;
   narration: string;
   mode: "scene" | "beat";
 }): Promise<SceneGenResponse> {
   const { ingest, format, userContext, sceneTitle, narration, mode } = params;
+  const language = params.language ?? DEFAULT_SCRIPT_LANGUAGE;
   const llm = getLlmClient();
   const ids = idGenerator(`${Date.now().toString(36)}-`);
 
   async function attempt(note?: string) {
     const toolInput = await llm.converseWithForcedTool({
-      system: buildSceneSystemPrompt(format, mode),
+      system: buildSceneSystemPrompt(format, mode, language),
       userMessage: buildUserMessage(
         ingest,
         userContext,

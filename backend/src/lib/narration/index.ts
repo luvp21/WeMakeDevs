@@ -31,7 +31,7 @@ export async function narrateScript(locked: LockedScript): Promise<NarrationResu
   for (const scene of locked.script.scenes) {
     const beatAudio: { beat_id: string; audio: Buffer; duration_ms: number }[] = [];
     for (const beat of scene.beats) {
-      const audio = await synthesizeSpeech(beat.text);
+      const audio = await synthesizeSpeech(beat.text, locked.script.language);
       const duration_ms = await audioDurationMs(audio);
       beatAudio.push({ beat_id: beat.id, audio, duration_ms });
     }

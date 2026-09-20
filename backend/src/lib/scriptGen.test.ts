@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { scenesFromText, wordPreservation } from "./scriptGen.js";
+import { registerLines, scenesFromText, wordPreservation } from "./scriptGen.js";
+import { cleanNarration, machineWritingHits, spokenStyleRules } from "./prompts/spokenStyle.js";
 
 const SCRIPT =
   "Promise dot all se saare requests ek saath jaate hain. Isse server overload ho jata hai. p-map concurrency limit lagata hai. Isliye sab kuch smooth chalta hai.";
@@ -54,4 +55,50 @@ test("planFromSourceScript: very many paragraphs are merged down to the scene ca
   const plan = planFromSourceScript(text);
   assert.ok(plan.length <= 14);
   assert.equal(wordPreservation(text, plan.map((p) => p.source_text ?? "")), 1);
+});
+
+test("an English script's register asks for English only and shows English examples", () => {
+  const text = registerLines("en").join("\n");
+  assert.match(text, /English only/);
+  assert.doesNotMatch(text, /Hinglish/);
+  assert.match(text, /Every time someone signed up/);
+});
+
+test("a Hinglish script's register keeps the Hinglish examples", () => {
+  const text = registerLines("hinglish").join("\n");
+  assert.match(text, /Hinglish/);
+  assert.match(text, /Toh yahan dekho/);
+});
+
+test("cleanNarration turns dashes, colons and markdown into plain speakable text", () => {
+  assert.equal(cleanNarration("It converts text — like two days — into milliseconds."), "It converts text, like two days, into milliseconds.");
+  assert.equal(cleanNarration("Two things: speed; and size."), "Two things, speed, and size.");
+  assert.equal(cleanNarration("Call `parse` on **any** string."), "Call parse on any string.");
+  assert.equal(cleanNarration("At 10:30 it runs."), "At 10:30 it runs.");
+});
+
+test("the spoken style rules apply to both languages and ban dashes and hype", () => {
+  for (const language of ["en", "hinglish"] as const) {
+    const text = spokenStyleRules(language).join("\n");
+    assert.match(text, /No dashes, colons/);
+    assert.match(text, /seamless/);
+  }
+  assert.match(spokenStyleRules("en").join("\n"), /contractions/);
+  assert.match(spokenStyleRules("hinglish").join("\n"), /Hindi part simple/);
+});
+
+test("machineWritingHits finds puffery, signposting and filler, and leaves plain narration alone", () => {
+  const hits = machineWritingHits("Let's dive in. This robust library plays a crucial role, and it's not just fast, it's seamless.");
+  for (const expected of ["let's dive", "robust", "plays a crucial role", "not just", "seamless"]) {
+    assert.ok(hits.includes(expected), `expected a hit for "${expected}", got ${hits.join(", ")}`);
+  }
+  assert.deepEqual(machineWritingHits("The ms package turns two days into milliseconds. It also goes the other way."), []);
+  assert.deepEqual(machineWritingHits("Yahan dekho, ek regex se number aur unit nikal aate hain."), []);
+});
+
+test("the machine-writing rules from the humanizer patterns reach the writer prompt", () => {
+  const text = spokenStyleRules("en").join("\n");
+  assert.match(text, /Do not sound machine-written/);
+  assert.match(text, /let's dive in/);
+  assert.match(text, /No 'not just X, but Y'/);
 });

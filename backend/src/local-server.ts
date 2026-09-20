@@ -23,7 +23,7 @@ import { narrateScript } from "./lib/narration/index.js";
 import { triggerRenderTask } from "./lib/render/trigger.js";
 import { getRenderStatus, setRenderStatus } from "./lib/render/status.js";
 import { getRecordingUploadUrl } from "./lib/recording.js";
-import { startTranscription, getTranscriptionStatus } from "./lib/transcribe/index.js";
+import { markTranscriptionStarted, startTranscription, getTranscriptionStatus } from "./lib/transcribe/index.js";
 import { computeSync } from "./lib/sync/computeSync.js";
 import { listProjects, getProject } from "./lib/projects.js";
 
@@ -56,7 +56,7 @@ app.post("/api/script", async (req, res) => {
     const script = await generateScript(parsed.ingest, parsed.user_context, parsed.format, {
       targetMinutes: parsed.target_minutes,
       sourceScript: parsed.source_script?.trim() || undefined,
-    });
+    }, parsed.language);
     res.json(script);
   } catch (err) {
     if (err instanceof ZodError) return res.status(400).json({ error: err.message });
@@ -71,7 +71,7 @@ app.post("/api/script/plan", async (req, res) => {
     const scenes = await planScript(parsed.ingest, parsed.user_context, parsed.format, {
       targetMinutes: parsed.target_minutes,
       sourceScript: parsed.source_script?.trim() || undefined,
-    });
+    }, parsed.language);
     res.json({ scenes });
   } catch (err) {
     if (err instanceof ZodError) return res.status(400).json({ error: err.message });
@@ -87,6 +87,7 @@ app.post("/api/script/write-scene", async (req, res) => {
       await writePlannedScene({
         ingest: parsed.ingest,
         format: parsed.format,
+        language: parsed.language,
         userContext: parsed.user_context,
         outline: parsed.outline,
         index: parsed.index,
@@ -105,6 +106,7 @@ app.post("/api/script/scene", async (req, res) => {
       await generateScene({
         ingest: parsed.ingest,
         format: parsed.format,
+        language: parsed.language,
         userContext: parsed.user_context,
         sceneTitle: parsed.scene_title,
         narration: parsed.narration,
@@ -181,6 +183,7 @@ app.post("/api/transcribe", async (req, res) => {
   try {
     const parsed = TranscribeRequestSchema.parse(req.body);
     const key = recordingKey(parsed.script_id, parsed.scene_id, "webm");
+    await markTranscriptionStarted(parsed.script_id, parsed.scene_id);
     await startTranscription(parsed.script_id, parsed.scene_id, key);
     res.json({ script_id: parsed.script_id, scene_id: parsed.scene_id, status: "in_progress" });
   } catch (err) {

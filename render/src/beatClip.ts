@@ -1,7 +1,7 @@
 import path from "node:path";
 import { mkdir, writeFile } from "node:fs/promises";
 import { runFfmpeg } from "./ffmpeg.js";
-import { DEMO_WINDOW } from "@vaani/shared";
+import { demoWindow } from "@vaani/shared";
 import { captureBeatFrames, screenshotHtml, CAPTURE_FPS } from "./screenshot.js";
 
 // Turns per-beat durations in seconds into whole frame counts whose running
@@ -80,30 +80,33 @@ export async function assembleScene(params: {
   ]);
 }
 
-// A ui_demo beat with real footage: the presenter's screen recording, cut to
-// this beat's window of the recording and framed like the other visuals (same
+// A ui_demo beat with real footage: the presenter's silent screen clip for this
+// step, sped up if it is longer than the narration and framed like the other visuals (same
 // dark background and bottom bar). frameHtml is the framing page from
-// demoFrameHtml(); the footage is scaled to fit DEMO_WINDOW, letterboxed if it
+// demoFrameHtml(); the footage is scaled to fit demoWindow(), letterboxed if it
 // isn't 16:9.
 export async function renderFootageClip(params: {
   frameHtml: string;
-  recordingPath: string;
-  startSeconds: number;
+  hasFace: boolean;
+  clipPath: string;
+  // 1 plays at normal speed; higher speeds it up (see clipSpeed in shared). A clip
+  // that ends before the beat holds its last frame.
+  speed: number;
   frames: number;
   workDir: string;
   id: string;
 }): Promise<string> {
-  const { frameHtml, recordingPath, startSeconds, frames, workDir, id } = params;
+  const { frameHtml, hasFace, clipPath: footagePath, speed, frames, workDir, id } = params;
   const framePath = path.join(workDir, `${id}-frame.png`);
   await screenshotHtml(frameHtml, framePath);
 
-  const { x, y, w, h } = DEMO_WINDOW;
+  const { x, y, w, h } = demoWindow(hasFace);
   const clipPath = path.join(workDir, `${id}.mp4`);
   await runFfmpeg([
     "-loop", "1", "-framerate", String(CAPTURE_FPS), "-i", framePath,
-    "-ss", startSeconds.toFixed(3), "-i", recordingPath,
+    "-i", footagePath,
     "-filter_complex",
-    `[1:v]fps=${CAPTURE_FPS},scale=${w}:${h}:force_original_aspect_ratio=decrease,pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2:color=0x0e1014,setsar=1[v];` +
+    `[1:v]setpts=PTS/${speed.toFixed(4)},fps=${CAPTURE_FPS},scale=${w}:${h}:force_original_aspect_ratio=decrease,pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2:color=0x0e1014,setsar=1[v];` +
       `[0:v][v]overlay=${x}:${y}:eof_action=repeat,format=yuv420p[out]`,
     "-map", "[out]",
     "-frames:v", String(frames),

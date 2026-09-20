@@ -66,7 +66,7 @@ const FAQ: { q: string; a: string }[] = [
   },
   {
     q: "Which languages does it support?",
-    a: "It's Hinglish-first: the script is written the way Indian developers actually talk, mixing Hindi and English. Other languages aren't supported yet.",
+    a: "Two: Hinglish, written the way Indian developers actually talk, and plain English. Pick one before the script is drafted. Other languages aren't supported yet.",
   },
   {
     q: "Is it free?",

@@ -907,6 +907,118 @@ Notes:
     half is now independently proven against real inputs through the real code paths, which is
     strong evidence on its own given the deadline.
 
+## Sunday, Sept 20: after the first live camera test
+
+- **Script language option** (English or Hinglish, picked before drafting; both in Latin letters).
+  `Script.language` (default `hinglish`, so old locked scripts still load) is threaded through plan,
+  write-scene, scene regenerate and the handlers. The prompt's register block comes from
+  `registerLines(language)`; English has its own example lines
+  (`backend/src/lib/prompts/englishExamples.ts`). Polly still uses Kajal, pinned to `en-IN` for
+  English. Whisper's first attempt is forced to `en` for English scripts (auto-detect stays for
+  Hinglish, where forcing `en` hallucinated); `attemptsFor()` in `groq.ts` drops the duplicate retry.
+  Sync needed no change (transliteration only touches Devanagari).
+- **Presenter's face in the final video.** Before this, `realRender.ts` used only the recording's
+  audio (plus its video on `ui_demo` beats), so the person never appeared. Now: a round camera
+  bubble, bottom-right, on every scene, taken from the narration take's own video (camera + mic).
+  `render/src/faceOverlay.ts` masks a centered square crop to a circle with `geq` and overlays it
+  (`fps=30` forced, since webcam webm is variable frame rate). No video track = no bubble, never an
+  error.
+- **Screen recording redone: one silent clip per demo step, recorded apart from the narration.**
+  Recording the screen and the narration together collided with apps that use the mic (Hosty's
+  voice bot), needed the app in the right state on cue, and made talking-while-clicking the norm.
+  Now a scene with `ui_demo` beats shows `DemoClipsPanel` first: share the tab once, then record
+  each step separately (pause/resume skips waits, retake freely, skip a step and it renders as a
+  text card). Clips upload to `clips/<script>/<beat>.webm` (`clipKey`, outside `recordings/` so
+  they're never mistaken for a narration take). The narration take is always camera + mic, so the
+  separate face recorder from earlier today was removed. Render fits each clip to its beat:
+  longer clips are sped up so the WHOLE clip fits and ends on its last frame (`clipSpeed`: squeezed into 85% of the beat, no cap, never cut, since the end is usually the result), shorter ones hold their last
+  frame. Checked with real ffmpeg: a 12s clip over a 5s beat showed source time 10.2s at 4.5s
+  (2.4x), a 2s clip held its last frame, both beats exactly 5.0s.
+  **Breaking for old projects**: a scene recorded with the old screen-as-video method has no
+  clips, so its demo beats now render as text cards (only test projects were made that way).
+  The clip panel times each take itself (a browser webm reports no duration) and shows, per
+  step, clip length vs the estimated narration length and what the render will do ("sped up 2.8x,
+  ends on the result", or a warning above 6x to pause through the wait and re-record). Checked
+  with real ffmpeg: a 12s clip over a 5s beat sped up 2.82x and was on its final frame (11.96s)
+  at 4.7s. Not done: cutting or fast-forwarding a section out of an already-recorded clip (pause
+  while recording is the workaround); a per-clip trim UI plus an endpoint to store the ranges.
+  Not done: the bot's audio is not captured (no tab audio), so viewers see the app but don't
+  hear a voice bot reply; on-screen transcript is the workaround.
+- **Layout leaves room for the bubble** (`hasFace` on `BeatChrome`, `pageHtml` in
+  `shared/src/visualDesign.ts`): the stage is drawn at 82% inside the space left of the bubble
+  (scaling keeps diagrams and code undistorted), and the demo window moves left and shrinks to
+  960x540 (`demoWindow(hasFace)`). The browser preview does not show the bubble.
+- Tests: backend suite now 35 (register per language, Whisper attempt order, bubble geometry,
+  clip speed and key).
+- **Still to prove**: a full run through the UI with a real webcam, and the Fargate image needs a
+  rebuild and push (deferred with the rest of hosting).
+
+- **Humanised scripts.** The first drafts read like a press release: long clause-stacked sentences,
+  hype words ("solves this instantly", "nightmare", "trusted worldwide"), code read as syntax
+  (`ms('2 days')`), dashes and colons the speaker has to improvise. New
+  `backend/src/lib/prompts/spokenStyle.ts`: spoken-style rules in the writer prompt for both
+  languages (one idea per sentence, 8 to 18 words, no dashes/colons/parentheses/symbols, everyday
+  words, code described not read, small numbers as words, banned hype list, no rule-of-three,
+  contractions for English, simple spoken Hindi plus English only for technical terms for
+  Hinglish), rewritten example lines in the same style, and `cleanNarration()` as a safety net
+  (dashes, colons and markdown become commas) on narration Vaani writes. A user's own script and
+  edited wording are never touched. Same repo (vercel/ms), before vs after: "Vercel's ms solves
+  this instantly: it converts human strings like two days into exact milliseconds..." became "The
+  ms package turns strings like two days directly into milliseconds. It converts human time into
+  numbers and back again." Length still on budget (143 and 136 words for a 1 minute target).
+  Backend suite 37. Not measured with real speakers; judge by reading a scene aloud.
+  **Second pass: patterns from the open-source `humanizer` skill** (MIT, built on Wikipedia's
+  "Signs of AI writing"; 33 patterns). It is a Claude Code skill, so it can't run inside the
+  deployed backend; instead its useful patterns went into our own prompt and a checker. Added to
+  `spokenStyle.ts`: "Do not sound machine-written" rules (plain is/has over serves as/boasts; no
+  inflated importance, no fake-depth "-ing" tails, no "not just X but Y" or "no guessing" tags, no
+  rule-of-three or false ranges, no vague authorities, no signposting or theatrical openers, no
+  aphorisms or staccato drama, no upbeat closers, no filler or hedging, and its AI-vocabulary
+  list), plus `machineWritingHits()`: a whole-word check over the scene's title and narration.
+  A hit (or a length miss) triggers ONE retry naming the offending words, keeping the better
+  draft. The skill flagged two of our own example lines as signposting ("let's walk through",
+  "give me a second to break this down"), so those were rewritten. vercel/ms, 3 runs: before had
+  "instantly", "under the hood" and "worldwide"; the latest en and hinglish scripts have zero hits
+  and no dashes or colons. Kept ours, not the skill's: the skill is English prose editing, so
+  sentence length, pronounceability and all Hinglish rules stay our own. Suite 39.
+
+- **Wiring check after the first real test (found: stale Fargate image).** The user's test video
+  had no face bubble and the demo scene showed their camera instead of the screen clip. Cause: the
+  app triggered a render on Fargate, whose ECR image was last pushed Sept 19 19:11, before the
+  bubble and per-step clip code existed, so it still ran the old "use the recording's video as
+  demo footage" logic. Everything else was correct against the real data (recordings have video,
+  both clips uploaded and ffprobe-able, beats 3 and 4 are the demo steps). Ran the new render
+  code locally on that project: bubble on slide, demo and diagram frames, and the demo window
+  shows the real DinoSprint screen clip. **Fix for testing**: `RENDER_MODE=local` (in
+  `backend/.env`) makes `triggerRenderTask` run the worker from this checkout instead of Fargate
+  (`render/trigger.ts`), so a render can never run older code than the app; ~50s for a 3 scene
+  project. **Still needed before deploying**: rebuild and push the Fargate image. An attempt failed
+  because the Docker daemon wasn't running (`sudo systemctl start docker`; the build itself was
+  not tried, only login succeeded). Hosted mode must not set `RENDER_MODE`.
+
+- **Hosted end to end (Sept 20, ~07:20 to 08:10 IST).** Live at
+  https://10jlhtgcih.execute-api.us-east-1.amazonaws.com (site + API, one https origin, API under
+  `/api`). Stack `vaani-backend` updated with every new function (sync, projects, plan,
+  write-scene, scene) and a `GroqApiKey`. **CloudFront failed**: "Your account must be verified
+  before you can add new CloudFront resources" (needs AWS Support; the update rolled back cleanly).
+  Workaround, all on AWS: `backend/site/index.mjs` is a small Lambda that serves the built frontend
+  (`npm run build:site` copies `frontend/dist` to `backend/site/dist`) behind the same HTTP API;
+  API routes moved under `/api/...` to match the frontend and local server; SPA fallback for
+  extension-less paths, gzip, immutable caching for fingerprinted assets, path-traversal guarded
+  and tested. API throttled (50 rps, burst 100) since it is public and every call can spend
+  Gemini/Groq/Polly/Fargate money. `GithubToken` parameter added (empty; unauthenticated GitHub
+  allows 60 requests an hour per IP, and Lambda IPs are shared).
+  **Found on the live API, fixed**: transcription took 22s for an 18s scene, too close to API
+  Gateway's 30s cutoff. `/api/transcribe` now only marks the scene in progress and starts a
+  background run of the same function (async invoke, no retries, 180s timeout); the app already
+  polls. Stored status is in_progress / completed / failed, a dead worker's marker counts as
+  failed after 5 min, and re-recording clears the old transcript. Live timings: plan 6s,
+  write-scene 8 to 14s, transcribe call 1.8s (done ~18s later), sync 1.9s, Lambda-triggered
+  Fargate render 108s (63.2s video, identical to local). Checked in a real browser: secure
+  context (camera, mic, screen capture available), dashboard lists the project, deep link
+  reopens it on the video step. Suite 47.
+  **Not yet done**: a real-webcam run on the live URL (user's test); no auth; GitHub token.
+
 ## Sunday, Sept 20
 
 - [ ] Sync algorithm wired to a real recorded scene

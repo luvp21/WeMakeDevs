@@ -45,3 +45,23 @@ export function runFfmpeg(args: string[]): Promise<void> {
     });
   });
 }
+
+// True when the file has a video track at all. A recording made without a
+// camera (or an audio-only one) has none, and then there is no face to show.
+export function hasVideoStream(filePath: string): Promise<boolean> {
+  return new Promise((resolve, reject) => {
+    const proc = spawn("ffprobe", [
+      "-v", "error",
+      "-select_streams", "v",
+      "-show_entries", "stream=codec_type",
+      "-of", "csv=p=0",
+      filePath,
+    ]);
+    let stdout = "";
+    proc.stdout.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString();
+    });
+    proc.on("error", reject);
+    proc.on("close", () => resolve(stdout.trim().length > 0));
+  });
+}

@@ -23,6 +23,7 @@ import {
   type ProjectList,
   type ProjectDetail,
   type VideoFormatId,
+  type ScriptLanguage,
   type SceneGenResponse,
   type PlannedScene,
 } from "@vaani/shared";
@@ -57,6 +58,7 @@ export function ingestRepo(repoUrl: string): Promise<IngestResult> {
 }
 
 export interface GenerateOptions {
+  language?: ScriptLanguage;
   targetMinutes?: number;
   sourceScript?: string;
 }
@@ -69,7 +71,7 @@ export function generateScript(
 ): Promise<Script> {
   return postJson(
     "/script",
-    { ingest, user_context: userContext, format, target_minutes: options.targetMinutes, source_script: options.sourceScript },
+    { ingest, user_context: userContext, format, language: options.language, target_minutes: options.targetMinutes, source_script: options.sourceScript },
     ScriptSchema,
   );
 }
@@ -83,7 +85,7 @@ export function planScript(
 ): Promise<PlannedScene[]> {
   return postJson(
     "/script/plan",
-    { ingest, user_context: userContext, format, target_minutes: options.targetMinutes, source_script: options.sourceScript },
+    { ingest, user_context: userContext, format, language: options.language, target_minutes: options.targetMinutes, source_script: options.sourceScript },
     ScriptPlanResponseSchema,
   ).then((r) => r.scenes);
 }
@@ -92,13 +94,14 @@ export function planScript(
 export function writeScene(params: {
   ingest: IngestResult;
   format: VideoFormatId;
+  language?: ScriptLanguage;
   userContext: string;
   outline: PlannedScene[];
   index: number;
 }): Promise<SceneGenResponse> {
   return postJson(
     "/script/write-scene",
-    { ingest: params.ingest, format: params.format, user_context: params.userContext, outline: params.outline, index: params.index },
+    { ingest: params.ingest, format: params.format, language: params.language, user_context: params.userContext, outline: params.outline, index: params.index },
     SceneGenResponseSchema,
   );
 }
@@ -108,6 +111,7 @@ export function writeScene(params: {
 export function regenerateScene(params: {
   ingest: IngestResult;
   format: VideoFormatId;
+  language?: ScriptLanguage;
   userContext: string;
   sceneTitle: string;
   narration: string;
@@ -118,6 +122,7 @@ export function regenerateScene(params: {
     {
       ingest: params.ingest,
       format: params.format,
+      language: params.language,
       user_context: params.userContext,
       scene_title: params.sceneTitle,
       narration: params.narration,
@@ -147,10 +152,11 @@ export function getRecordingUploadUrl(
   scriptId: string,
   sceneId: string,
   contentType: string,
+  beatId?: string,
 ): Promise<RecordingUploadUrlResponse> {
   return postJson(
     "/recording/upload-url",
-    { script_id: scriptId, scene_id: sceneId, content_type: contentType },
+    { script_id: scriptId, scene_id: sceneId, content_type: contentType, beat_id: beatId },
     RecordingUploadUrlResponseSchema,
   );
 }

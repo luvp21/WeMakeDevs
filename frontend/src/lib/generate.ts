@@ -1,4 +1,5 @@
-import type { IngestResult, PlannedScene, Scene, Script, VideoFormatId } from "@vaani/shared";
+import type { IngestResult, PlannedScene, Scene, Script, ScriptLanguage, VideoFormatId } from "@vaani/shared";
+import { DEFAULT_SCRIPT_LANGUAGE } from "@vaani/shared";
 import * as api from "@/lib/api";
 
 export type GenerateProgress =
@@ -9,7 +10,7 @@ const PARALLEL_SCENES = 3;
 const SCENE_ATTEMPTS = 2;
 
 async function writeWithRetry(
-  params: { ingest: IngestResult; format: VideoFormatId; userContext: string; outline: PlannedScene[]; index: number },
+  params: { ingest: IngestResult; format: VideoFormatId; language: ScriptLanguage; userContext: string; outline: PlannedScene[]; index: number },
 ) {
   let lastError: unknown;
   for (let attempt = 0; attempt < SCENE_ATTEMPTS; attempt++) {
@@ -32,6 +33,7 @@ export async function generateInSteps(
   options: api.GenerateOptions,
   onProgress: (progress: GenerateProgress) => void,
 ): Promise<Script> {
+  const language = options.language ?? DEFAULT_SCRIPT_LANGUAGE;
   onProgress({ phase: "plan" });
   const outline = await api.planScript(ingest, userContext, format, options);
 
@@ -42,7 +44,7 @@ export async function generateInSteps(
   async function worker() {
     while (next < outline.length) {
       const index = next++;
-      written[index] = await writeWithRetry({ ingest, format, userContext, outline, index });
+      written[index] = await writeWithRetry({ ingest, format, language, userContext, outline, index });
       done += 1;
       onProgress({ phase: "write", done, total: outline.length });
     }
@@ -55,5 +57,5 @@ export async function generateInSteps(
     title: scene.title,
     beats: scene.beats.map((beat) => ({ ...beat, id: `beat-${++beatNumber}` })),
   }));
-  return { repo_url: ingest.repo_url, user_context: userContext, format, scenes };
+  return { repo_url: ingest.repo_url, user_context: userContext, format, language, scenes };
 }

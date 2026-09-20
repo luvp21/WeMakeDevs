@@ -1,5 +1,5 @@
 import Groq, { toFile } from "groq-sdk";
-import { transcribeOutputKey, type TranscribeStatus, type TranscriptWord } from "@vaani/shared";
+import { transcribeOutputKey, type ScriptLanguage, type TranscribeStatus, type TranscriptWord } from "@vaani/shared";
 import { getBuffer, putJson, getJson } from "../s3.js";
 import { getLockedScript } from "../lockScript.js";
 import { transliterateTranscript } from "../sync/transliterate.js";
@@ -58,6 +58,7 @@ interface Attempt {
 interface SceneContext {
   prompt: string;
   scriptText: string;
+  language: ScriptLanguage;
 }
 
 async function sceneContext(scriptId: string, sceneId: string): Promise<SceneContext | undefined> {
@@ -69,6 +70,7 @@ async function sceneContext(scriptId: string, sceneId: string): Promise<SceneCon
     return {
       prompt: text.slice(-MAX_PROMPT_CHARS),
       scriptText: text,
+      language: locked.script.language,
     };
   } catch {
     // No script to prime with (e.g. transcribing a loose recording): plain
@@ -104,9 +106,21 @@ export function pickTranscript(candidates: TranscriptWord[][], scriptText: strin
   return scored.reduce((best, c) => (c.score > best.score ? c : best), scored[0]).words;
 }
 
-interface StoredResult {
-  status: "completed";
-  words: TranscriptWord[];
+// What is stored at the transcript key. "in_progress" is written the moment a
+// transcription is requested, which also replaces the transcript of an earlier
+// take when a scene is re-recorded (otherwise a poll would return the old one).
+export type StoredResult =
+  | { status: "in_progress"; started_at: string }
+  | { status: "completed"; words: TranscriptWord[] }
+  | { status: "failed"; error: string };
+
+// A worker that dies without reporting (a Lambda timeout, say) leaves the marker
+// behind. Past this age it counts as failed, so the app stops waiting.
+const STALE_AFTER_MS = 5 * 60 * 1000;
+
+export async function markTranscriptionStarted(scriptId: string, sceneId: string): Promise<void> {
+  const marker: StoredResult = { status: "in_progress", started_at: new Date().toISOString() };
+  await putJson(transcribeOutputKey(scriptId, sceneId), marker);
 }
 
 // Whisper (via Groq) is the primary STT path, not AWS Transcribe: Transcribe's
@@ -137,18 +151,40 @@ async function transcribeOnce(audio: Buffer, params: { language?: string; prompt
   return transliterateTranscript(words);
 }
 
+// The settings to try, in order. Without a script there is nothing to prime or
+// score against, so it's one plain attempt. An English script has no Hindi to
+// detect, so it says "en" up front (forcing "en" on Hinglish hallucinates, see
+// above); Hinglish keeps auto-detect first.
+export function attemptsFor(language: ScriptLanguage | undefined): Attempt[] {
+  if (!language) return [{ label: "auto", language: WHISPER_LANGUAGE, usePrompt: false }];
+  const all: Attempt[] = [
+    language === "en"
+      ? { label: "english + script prompt", language: "en", usePrompt: true }
+      : { label: "auto + script prompt", language: WHISPER_LANGUAGE, usePrompt: true },
+    { label: "english + script prompt", language: "en", usePrompt: true },
+    { label: "hindi + script prompt", language: "hi", usePrompt: true },
+    { label: "english, no prompt", language: "en", usePrompt: false },
+  ];
+  // An English script would otherwise repeat the same request twice.
+  return all.filter((a, i) => all.findIndex((b) => b.language === a.language && b.usePrompt === a.usePrompt) === i);
+}
+
 export async function startTranscription(scriptId: string, sceneId: string, recordingKey: string): Promise<void> {
+  try {
+    await transcribeScene(scriptId, sceneId, recordingKey);
+  } catch (err) {
+    // Report it where the app is looking, then let the caller see it too.
+    const failed: StoredResult = { status: "failed", error: err instanceof Error ? err.message : "Transcription failed" };
+    await putJson(transcribeOutputKey(scriptId, sceneId), failed);
+    throw err;
+  }
+}
+
+async function transcribeScene(scriptId: string, sceneId: string, recordingKey: string): Promise<void> {
   const audio = await getBuffer(recordingKey);
   const context = await sceneContext(scriptId, sceneId);
 
-  const attempts: Attempt[] = context
-    ? [
-        { label: "auto + script prompt", language: WHISPER_LANGUAGE, usePrompt: true },
-        { label: "english + script prompt", language: "en", usePrompt: true },
-        { label: "hindi + script prompt", language: "hi", usePrompt: true },
-        { label: "english, no prompt", language: "en", usePrompt: false },
-      ]
-    : [{ label: "auto", language: WHISPER_LANGUAGE, usePrompt: false }];
+  const attempts = attemptsFor(context?.language);
 
   const candidates: TranscriptWord[][] = [];
   for (const attempt of attempts) {
@@ -170,14 +206,25 @@ export async function startTranscription(scriptId: string, sceneId: string, reco
   await putJson(transcribeOutputKey(scriptId, sceneId), result);
 }
 
-export async function getTranscriptionStatus(scriptId: string, sceneId: string): Promise<TranscribeStatus> {
-  try {
-    const stored = await getJson<StoredResult>(transcribeOutputKey(scriptId, sceneId));
-    return { script_id: scriptId, scene_id: sceneId, status: "completed", words: stored.words };
-  } catch {
-    // Nothing written yet. startTranscription() above blocks on the whole
-    // Groq call before returning, so in practice this only shows on a poll
-    // that races the very first request — not a real "in progress" job.
-    return { script_id: scriptId, scene_id: sceneId, status: "in_progress" };
+// What the app should be told for whatever is stored. Pure, so it can be tested.
+export function statusFromStored(
+  scriptId: string,
+  sceneId: string,
+  stored: StoredResult | null,
+  now: number = Date.now(),
+): TranscribeStatus {
+  const base = { script_id: scriptId, scene_id: sceneId };
+  // Nothing written yet: a poll that raced the request.
+  if (!stored) return { ...base, status: "in_progress" };
+  if (stored.status === "completed") return { ...base, status: "completed", words: stored.words };
+  if (stored.status === "failed") return { ...base, status: "failed", error: stored.error };
+  if (now - new Date(stored.started_at).getTime() > STALE_AFTER_MS) {
+    return { ...base, status: "failed", error: "Transcription timed out. Re-record or retry this scene." };
   }
+  return { ...base, status: "in_progress" };
+}
+
+export async function getTranscriptionStatus(scriptId: string, sceneId: string): Promise<TranscribeStatus> {
+  const stored = await getJson<StoredResult>(transcribeOutputKey(scriptId, sceneId)).catch(() => null);
+  return statusFromStored(scriptId, sceneId, stored);
 }

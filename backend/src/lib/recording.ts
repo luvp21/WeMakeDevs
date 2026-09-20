@@ -1,4 +1,4 @@
-import { recordingKey, type RecordingUploadUrlRequest, type RecordingUploadUrlResponse } from "@vaani/shared";
+import { clipKey, recordingKey, type RecordingUploadUrlRequest, type RecordingUploadUrlResponse } from "@vaani/shared";
 import { getPresignedPutUrl } from "./s3.js";
 
 function extensionFromContentType(contentType: string): string {
@@ -9,7 +9,11 @@ function extensionFromContentType(contentType: string): string {
 export async function getRecordingUploadUrl(
   req: RecordingUploadUrlRequest,
 ): Promise<RecordingUploadUrlResponse> {
-  const key = recordingKey(req.script_id, req.scene_id, extensionFromContentType(req.content_type));
+  const extension = extensionFromContentType(req.content_type);
+  const key =
+    req.beat_id
+      ? clipKey(req.script_id, req.beat_id, extension)
+      : recordingKey(req.script_id, req.scene_id, extension);
   const upload_url = await getPresignedPutUrl(key, req.content_type);
   return { upload_url, key };
 }
