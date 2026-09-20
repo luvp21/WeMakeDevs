@@ -1284,3 +1284,15 @@ Notes:
   card, How it works, Sync, FAQ list, dashboard progress panel, Studio stepper, the summary card)
   and on hover or focus for the stack cards, dashboard stat tiles and project cards. Frontend
   only; redeployed with a site rebuild, no image rebuild.
+- **Judge link rotated, Sept 20 about 6:20 PM.** A new random `AUTH_SECRET` went into `backend/.env`
+  (not printed), and the stack was redeployed with every parameter. Checked: the old key answers
+  401, the new key signs in as the judge, a made-up key answers 401. The new link is saved on the
+  `judge_link` line of the git-ignored `backend/.accounts.txt`. Rotate again only if it leaks,
+  because the link given to the judges stops working when the secret changes.
+- **Second deploy, Sept 20 about 6:55 PM** (site only, no image rebuild): the wider column, section
+  labels, crosshairs and corner marks. All 7 live JS and CSS files are byte-identical to the local
+  build, the judge link still answers 200, the API still answers 401 without a token, no Lambda
+  errors in the following 10 minutes, both alarms OK. Everything up to the commit "wider landing
+  column, bigger section labels, exact crosshairs, corner marks" is pushed to `origin/main`.
+
+- **Docs reorganised around features (Sept 20 evening).** The README now leads with what a judge can see and try, grouped by what a person does (repo to script, review, visuals, record, cuts, finished video, workspace, sign-in), then how it works and where AWS fits, and links to the deeper docs. `docs/FEATURES.md` is a feature guide (what it does, where to find it in the app, what it is built with) instead of a status table. Everything about running the app moved, unchanged, to the new `docs/OPERATIONS.md`: accounts and roles, running locally, deploying, operational limits, the test command. The build log, debugging notes and decisions stay in `PROGRESS.md` and `docs/ARCHITECTURE.md`. `CLAUDE.md` and `docs/SCOPE_PLAN.md` now point at "Not built yet" in the features doc, since the old good-to-have table is gone.
