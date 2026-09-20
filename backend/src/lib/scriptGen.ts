@@ -219,10 +219,17 @@ const VISUAL_RULES = [
   "- code_highlight: highlight specific lines of a provided source file. Set file_path to one of the given sample file paths and line_range to \"start-end\" (e.g. \"10-25\"). Keep content empty. Never invent paths or line numbers.",
   "- ui_demo: the presenter shows the running product. In content, write one plain sentence describing exactly what the viewer should see (for example: \"Paste a GitHub URL and click Draft the script\").",
   "",
-  "Slide HTML rules (every video shares one visual identity, applied automatically):",
-  "- Your HTML goes INSIDE an already-styled dark container: write only inner content (h1/h2/p/div), never a full page, background color or fixed positioning.",
-  "- <h1> for the main point, <h2> for a small label above it, <p> for body text. Class \"statement\" on a <p> makes one very large line, ideal for a hook or a closing line. Classes \"accent\" (blue) and \"accent-warm\" (amber) for emphasis, \"card\" for a boxed group, \"mono\" for inline code.",
-  "- Use real specifics from the repo (actual names, actual behavior) over generic phrasing. One idea per beat, short text, generous whitespace. No gradients, icons or stock illustration style.",
+  "Slide HTML rules (every video shares one visual identity, in a dark or light theme the presenter picks, applied automatically):",
+  "- Your HTML goes INSIDE an already-styled container: write only inner content, never a full page, <style>, colors, fonts or fixed positioning. Never hardcode colors; use only the classes below so the slide works in both themes.",
+  "- <h1> for the main point, <h2> for a small label above it, <p> for body text. Class \"statement\" on a <p> makes one very large line, ideal for a hook or a closing line. Classes \"accent\" and \"accent-warm\" for emphasis, \"card\" for a boxed group, \"mono\" for inline code.",
+  "- Make slides informative, not just titles. Pick the block that fits the content:",
+  "  - Bullets: <ul class=\"points\"><li><b>Name</b> <span>what it does</span></li>...</ul>. 3 to 5 items, each under 12 words. Bold the key term with <b>.",
+  "  - Table: <table class=\"data\"><thead><tr><th>Option</th><th>Good for</th></tr></thead><tbody><tr><td>Name</td><td>Value</td></tr>...</tbody></table>. At most 5 rows and 4 columns, a few words per cell. Put numbers in <td class=\"num\">. Use it for comparisons, options, config, API surface.",
+  "  - Stat cards: <div class=\"stats\"><div class=\"stat\"><b>3</b><span>what it counts</span></div>...</div>. 2 to 4 cards. Only numbers that appear in the repo material or the user's notes.",
+  "  - Two columns: <div class=\"cols\"><div class=\"card\"><h3>Before</h3><ul class=\"points\">...</ul></div><div class=\"card\">...</div></div>. Use it for before and after, or this versus that.",
+  "  - Inline bars: <div class=\"hbars\"><div class=\"hbar\"><span>Label</span><i style=\"--w:70%\"></i><em>70</em></div>...</div>, the width being the value as a percent of the largest. Same rule as charts: only real numbers.",
+  "  A slide is a heading (h1 or h2) plus at most one of these blocks. Do not stack a table and bullets on one slide.",
+  "- Use real specifics from the repo (actual names, actual behavior) over generic phrasing. One idea per beat, generous whitespace. No gradients, icons or stock illustration style.",
 ];
 
 const WORDS_PER_SCENE = 70; // a scene is roughly 30 seconds of narration

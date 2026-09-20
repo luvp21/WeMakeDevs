@@ -1,6 +1,17 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { FACE_BUBBLE, FRAME_WIDTH, RESULT_HOLD_SHARE, clipKey, clipSpeed, demoWindow, recordingKey, slideHtml } from "@vaani/shared";
+import {
+  FACE_BUBBLE,
+  FRAME_WIDTH,
+  RESULT_HOLD_SHARE,
+  ScriptSchema,
+  clipKey,
+  clipSpeed,
+  demoWindow,
+  previewChrome,
+  recordingKey,
+  slideHtml,
+} from "@vaani/shared";
 
 const chrome = { sceneTitle: "Intro", sceneIndex: 0, sceneCount: 2, beatIndex: 0, beatCount: 2 };
 
@@ -45,4 +56,32 @@ test("a demo clip is sped up to fit its narration without losing its end", () =>
   assert.ok(speed > 6, "a 60s clip over a 10s beat is flagged as too fast");
   assert.equal(clipSpeed(NaN, 10), 1);
   assert.equal(clipSpeed(10, 0), 1);
+});
+
+test("frames are dark unless the light theme is asked for", () => {
+  assert.match(slideHtml("<h1>Hi</h1>", chrome), /data-theme="dark"/);
+  const light = slideHtml("<h1>Hi</h1>", { ...chrome, theme: "light" });
+  assert.match(light, /data-theme="light"/);
+  assert.match(light, /--bg: #f7f8fa/, "uses the website's light background");
+  assert.match(light, /font-family: "Geist Mono"/, "embeds the website's monospace font");
+  assert.doesNotMatch(slideHtml("<h1>Hi</h1>", chrome), /font-family: "Geist Mono"/, "dark frames do not carry the font");
+});
+
+test("a themed preview has no bottom bar", () => {
+  const html = slideHtml("<h1>Hi</h1>", previewChrome("light"));
+  assert.match(html, /data-theme="light"/);
+  assert.doesNotMatch(html, /class="chrome"/);
+});
+
+test("slide building blocks (bullets, table, stats, bars) are styled in the design system", () => {
+  const html = slideHtml("<ul class=\"points\"><li>a</li></ul>", chrome);
+  for (const selector of [".slide ul.points", ".slide table.data", ".slide .stats", ".slide .cols", ".slide .hbar"]) {
+    assert.ok(html.includes(selector), `${selector} is styled`);
+  }
+});
+
+test("scripts saved before themes existed stay dark", () => {
+  const script = ScriptSchema.parse({ repo_url: "https://github.com/a/b", user_context: "", scenes: [] });
+  assert.equal(script.theme, "dark");
+  assert.equal(ScriptSchema.parse({ ...script, theme: "light" }).theme, "light");
 });

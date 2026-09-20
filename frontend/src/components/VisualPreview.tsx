@@ -9,14 +9,17 @@ import {
   demoFrameHtml,
   diagramHtml,
   findIngestedFile,
+  previewChrome,
   slideHtml,
   type IngestResult,
+  type VideoTheme,
   type VisualSpec,
 } from "@vaani/shared";
 
 interface VisualPreviewProps {
   spec: VisualSpec;
   ingestResult: IngestResult | null;
+  theme: VideoTheme;
 }
 
 // Renders the exact page the video renderer screenshots (same shared HTML/CSS),
@@ -101,20 +104,21 @@ function CodeHighlightPreview({
   );
 }
 
-export function VisualPreview({ spec, ingestResult }: VisualPreviewProps) {
+export function VisualPreview({ spec, ingestResult, theme }: VisualPreviewProps) {
+  const chrome = previewChrome(theme);
   switch (spec.visual_type) {
     case "code_highlight":
       return <CodeHighlightPreview spec={spec} ingestResult={ingestResult} />;
     case "slide":
-      return <FramePreview html={slideHtml(spec.html, undefined)} />;
+      return <FramePreview html={slideHtml(spec.html, chrome)} />;
     case "diagram":
-      return <FramePreview html={diagramHtml(spec, undefined)} />;
+      return <FramePreview html={diagramHtml(spec, chrome)} />;
     case "chart":
-      return <FramePreview html={chartHtml(spec, undefined)} />;
+      return <FramePreview html={chartHtml(spec, chrome)} />;
     case "ui_demo":
       return (
         <div className="flex flex-col gap-3">
-          <FramePreview html={demoFrameHtml(spec.note || "Live demo", undefined, "Your screen recording plays here")} />
+          <FramePreview html={demoFrameHtml(spec.note || "Live demo", chrome, "Your screen recording plays here")} />
           <p className="flex items-start gap-2 text-xs text-muted-foreground">
             <MonitorPlay className="mt-0.5 size-3.5 shrink-0" />
             You'll share your screen for this beat while you talk. Your recording goes here.

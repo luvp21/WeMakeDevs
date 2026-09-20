@@ -77,7 +77,7 @@ export async function renderSceneFromRecording(
   const clipPaths: string[] = [];
   for (let i = 0; i < scene.beats.length; i++) {
     const beat = scene.beats[i];
-    const chrome = chromeFor(scenes, sceneIndex, i, hasFace);
+    const chrome = chromeFor(scenes, sceneIndex, i, hasFace, locked.script.theme);
     if (beat.visual_spec.visual_type === "ui_demo") {
       const footage = await fetchDemoClip(locked.script_id, beat.id, workDir);
       if (footage) {

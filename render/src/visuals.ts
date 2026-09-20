@@ -10,8 +10,10 @@ import {
   placeholderHtml,
   slideHtml,
   type Beat,
+  DEFAULT_VIDEO_THEME,
   type BeatChrome,
   type IngestResult,
+  type VideoTheme,
   type VisualSpec,
 } from "@vaani/shared";
 
@@ -34,6 +36,7 @@ async function codeHighlightHtml(
   ingest: IngestResult,
   chrome: BeatChrome | undefined,
 ): Promise<string> {
+  const light = chrome?.theme === "light";
   const content = findIngestedFile(ingest, spec.file_path);
   if (!content) {
     return placeholderHtml(`${spec.file_path || "(no file)"} not available`, chrome);
@@ -52,7 +55,7 @@ async function codeHighlightHtml(
   const lastHighlighted = spec.end_line - windowStart + 1;
   const html = await codeToHtml(snippet, {
     lang: spec.language ?? "text",
-    theme: "one-dark-pro",
+    theme: light ? "github-light" : "one-dark-pro",
     transformers: [
       {
         line(node, lineNumber) {
@@ -81,8 +84,8 @@ async function codeHighlightHtml(
     .code-wrap { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 34px 72px; }
     .code-window {
       width: 100%; max-height: 100%; overflow: hidden; display: flex; flex-direction: column;
-      background: #21252b; border: 1px solid var(--border); border-radius: 16px;
-      box-shadow: 0 30px 80px rgba(0, 0, 0, 0.45);
+      background: ${light ? "var(--bg-elevated)" : "#21252b"}; border: 1px solid var(--border); border-radius: 16px;
+      box-shadow: 0 30px 80px var(--shadow);
       animation: vaani-pop 0.6s var(--ease) both;
     }
     .code-title { display: flex; justify-content: space-between; padding: 12px 20px; border-bottom: 1px solid var(--border); font-family: var(--font-mono); font-size: 14px; color: var(--fg-muted); }
@@ -127,6 +130,7 @@ export function chromeFor(
   sceneIndex: number,
   beatIndex: number,
   hasFace = false,
+  theme: VideoTheme = DEFAULT_VIDEO_THEME,
 ): BeatChrome {
   return {
     sceneTitle: scenes[sceneIndex].title,
@@ -135,6 +139,7 @@ export function chromeFor(
     beatIndex,
     beatCount: scenes[sceneIndex].beats.length,
     hasFace,
+    theme,
   };
 }
 

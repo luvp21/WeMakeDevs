@@ -8,10 +8,12 @@
 import { z } from "zod";
 import { VideoFormatIdSchema } from "./formats.js";
 import { ScriptLanguageSchema } from "./languages.js";
+import { VideoThemeSchema } from "./theme.js";
 
 export * from "./storageKeys.js";
 export * from "./formats.js";
 export * from "./languages.js";
+export * from "./theme.js";
 export * from "./auth.js";
 export * from "./ingest.js";
 export * from "./duration.js";
@@ -110,6 +112,8 @@ export const ScriptSchema = z.object({
   format: VideoFormatIdSchema.default("code_walkthrough"),
   // Language the narration is written and spoken in. Old scripts are Hinglish.
   language: ScriptLanguageSchema.default("hinglish"),
+  // Look of the slides, diagrams and charts. Old scripts predate it and stay dark.
+  theme: VideoThemeSchema.default("dark"),
   scenes: z.array(SceneSchema),
 });
 export type Script = z.infer<typeof ScriptSchema>;

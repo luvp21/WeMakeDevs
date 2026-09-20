@@ -1,5 +1,5 @@
 import type { IngestResult, PlannedScene, Scene, Script, ScriptLanguage, VideoFormatId } from "@vaani/shared";
-import { DEFAULT_SCRIPT_LANGUAGE } from "@vaani/shared";
+import { DEFAULT_SCRIPT_LANGUAGE, DEFAULT_VIDEO_THEME } from "@vaani/shared";
 import * as api from "@/lib/api";
 
 export type GenerateProgress =
@@ -57,5 +57,5 @@ export async function generateInSteps(
     title: scene.title,
     beats: scene.beats.map((beat) => ({ ...beat, id: `beat-${++beatNumber}` })),
   }));
-  return { repo_url: ingest.repo_url, user_context: userContext, format, language, scenes };
+  return { repo_url: ingest.repo_url, user_context: userContext, format, language, theme: options.theme ?? DEFAULT_VIDEO_THEME, scenes };
 }

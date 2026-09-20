@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { ArrowRight, Lock, LockKeyhole, PenLine, RefreshCw } from "lucide-react";
-import { SCRIPT_LANGUAGES, countWords, estimateSeconds, formatDuration } from "@vaani/shared";
-import type { Beat, IngestResult, Scene, Script, VisualSpec } from "@vaani/shared";
+import { SCRIPT_LANGUAGES, VIDEO_THEMES, countWords, estimateSeconds, formatDuration } from "@vaani/shared";
+import type { Beat, IngestResult, Scene, Script, VideoTheme, VisualSpec } from "@vaani/shared";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
@@ -139,6 +139,28 @@ export function ScriptReview({
 
   return (
     <div className="flex flex-col gap-6">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-card px-4 py-3">
+        <div className="flex flex-col gap-0.5">
+          <span className="text-sm font-medium">Slide theme</span>
+          <span className="text-xs text-muted-foreground">{VIDEO_THEMES[script.theme].description}</span>
+        </div>
+        <div className="flex gap-2" role="radiogroup" aria-label="Slide theme">
+          {(Object.keys(VIDEO_THEMES) as VideoTheme[]).map((theme) => (
+            <Button
+              key={theme}
+              role="radio"
+              aria-checked={script.theme === theme}
+              variant={script.theme === theme ? "default" : "outline"}
+              size="sm"
+              disabled={isLocked}
+              onClick={() => onChange({ ...script, theme })}
+            >
+              {VIDEO_THEMES[theme].name}
+            </Button>
+          ))}
+        </div>
+      </div>
+
       <Accordion multiple defaultValue={[script.scenes[0]?.id]} className="flex flex-col gap-3">
         {script.scenes.map((scene, sceneIndex) => {
           const rewriting = scene.id in rewriteDraft;
@@ -265,7 +287,7 @@ export function ScriptReview({
                               {isStale && <Badge variant="secondary">Wording changed</Badge>}
                               {summary && <span className="truncate font-mono">{summary}</span>}
                             </span>
-                            <VisualPreview spec={beat.visual_spec} ingestResult={ingestResult} />
+                            <VisualPreview spec={beat.visual_spec} ingestResult={ingestResult} theme={script.theme} />
                           </div>
                         </div>
                       );

@@ -54,7 +54,7 @@ async function renderSceneFromNarration(
   const clipPaths: string[] = [];
   for (let i = 0; i < scene.beats.length; i++) {
     const beat = scene.beats[i];
-    const html = await beatVisualHtml(beat, locked.ingest, chromeFor(scenes, sceneIndex, i));
+    const html = await beatVisualHtml(beat, locked.ingest, chromeFor(scenes, sceneIndex, i, false, locked.script.theme));
     clipPaths.push(await renderBeatClip({ html, frames: frames[i], workDir, id: beat.id }));
   }
 

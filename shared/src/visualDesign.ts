@@ -5,6 +5,8 @@
 // reviews is what gets rendered. Only code-highlight beats differ (the
 // renderer uses Shiki, the browser a JS highlighter).
 import type { ChartSpec, DiagramSpec } from "./index.js";
+import { GEIST_MONO_WOFF2_BASE64 } from "./geistMonoFont.js";
+import { DEFAULT_VIDEO_THEME, type VideoTheme } from "./theme.js";
 
 export const FRAME_WIDTH = 1280;
 export const FRAME_HEIGHT = 720;
@@ -21,6 +23,14 @@ export interface BeatChrome {
   // The presenter's face is added over the finished frame (bottom-right). Set
   // when it will be, so the visual leaves room for it.
   hasFace?: boolean;
+  // Dark (default) or light. See theme.ts.
+  theme?: VideoTheme;
+}
+
+// A chrome with no bottom bar, only carrying the theme. The review page has no
+// scene position to show but still needs to draw in the chosen theme.
+export function previewChrome(theme: VideoTheme): BeatChrome {
+  return { sceneTitle: "", sceneIndex: 0, sceneCount: 0, beatIndex: 0, beatCount: 0, theme };
 }
 
 // The presenter's round camera bubble, in frame pixels. The renderer overlays
@@ -57,6 +67,19 @@ export const DESIGN_SYSTEM_CSS = `
     --accent: #61afef;
     --accent-warm: #e5c07b;
     --success: #98c379;
+    --grid: rgba(255, 255, 255, 0.045);
+    --chrome-bg: rgba(27, 30, 36, 0.72);
+    --chrome-ink: #10131a;
+    --step-off: rgba(255, 255, 255, 0.12);
+    --step-done: rgba(97, 175, 239, 0.45);
+    --edge: rgba(145, 153, 168, 0.75);
+    --edge-arrow: rgba(145, 153, 168, 0.95);
+    --hero-fill: rgba(97, 175, 239, 0.14);
+    --hero-line: rgba(97, 175, 239, 0.7);
+    --window-bg: #0e1014;
+    --window-line: rgba(255, 255, 255, 0.14);
+    --shadow: rgba(0, 0, 0, 0.55);
+    --page-glow: #2d323c;
     --ease: cubic-bezier(0.16, 1, 0.3, 1);
     --font: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
     --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
@@ -66,7 +89,7 @@ export const DESIGN_SYSTEM_CSS = `
     position: relative;
     color: var(--fg);
     font-family: var(--font);
-    background: radial-gradient(90% 80% at 50% 0%, #2d323c 0%, var(--bg) 52%, var(--bg-deep) 100%);
+    background: radial-gradient(90% 80% at 50% 0%, var(--page-glow) 0%, var(--bg) 52%, var(--bg-deep) 100%);
   }
   /* Faint blueprint grid, fading out toward the edges. */
   body::before {
@@ -74,8 +97,8 @@ export const DESIGN_SYSTEM_CSS = `
     position: absolute;
     inset: 0;
     background-image:
-      linear-gradient(to right, rgba(255, 255, 255, 0.045) 1px, transparent 1px),
-      linear-gradient(to bottom, rgba(255, 255, 255, 0.045) 1px, transparent 1px);
+      linear-gradient(to right, var(--grid) 1px, transparent 1px),
+      linear-gradient(to bottom, var(--grid) 1px, transparent 1px);
     background-size: 64px 64px;
     -webkit-mask-image: radial-gradient(75% 70% at 50% 40%, black, transparent);
     mask-image: radial-gradient(75% 70% at 50% 40%, black, transparent);
@@ -127,33 +150,66 @@ export const DESIGN_SYSTEM_CSS = `
   /* One big statement, for a hook / problem / call to action. */
   .slide .statement { font-size: 76px; font-weight: 800; letter-spacing: -0.03em; line-height: 1.05; max-width: 1050px; }
 
+  /* Slide building blocks: bullets, table, stat cards, inline bars, columns. */
+  .slide h3 { margin: 0; font-size: 20px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--fg-muted); }
+  .slide ul.points { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 16px; }
+  .slide ul.points li { position: relative; padding-left: 34px; font-size: 30px; line-height: 1.35; animation: vaani-rise 0.6s var(--ease) both; animation-delay: calc(140ms + var(--k, 0) * 80ms); }
+  .slide ul.points li::before { content: ""; position: absolute; left: 4px; top: 0.5em; width: 12px; height: 12px; border-radius: 3px; background: var(--accent); }
+  .slide ul.points li b { color: var(--accent); font-weight: 700; }
+  .slide ul.points li span { color: var(--fg-muted); }
+  .slide ul.points li:nth-child(2) { --k: 1; } .slide ul.points li:nth-child(3) { --k: 2; }
+  .slide ul.points li:nth-child(4) { --k: 3; } .slide ul.points li:nth-child(n+5) { --k: 4; }
+  .slide table.data { width: 100%; border-collapse: separate; border-spacing: 0; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
+  .slide table.data th { text-align: left; padding: 16px 24px; font-size: 16px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--fg-muted); border-bottom: 1px solid var(--border); }
+  .slide table.data th.num { text-align: right; }
+  .slide table.data td { padding: 16px 24px; font-size: 24px; line-height: 1.3; border-bottom: 1px solid var(--border); }
+  .slide table.data tr:last-child td { border-bottom: 0; }
+  .slide table.data td:first-child { font-weight: 700; }
+  .slide table.data td.num { font-family: var(--font-mono); text-align: right; color: var(--accent); }
+  .slide table.data tbody tr { animation: vaani-fade 0.5s ease-out both; animation-delay: calc(200ms + var(--k, 0) * 90ms); }
+  .slide table.data tbody tr:nth-child(2) { --k: 1; } .slide table.data tbody tr:nth-child(3) { --k: 2; }
+  .slide table.data tbody tr:nth-child(4) { --k: 3; } .slide table.data tbody tr:nth-child(n+5) { --k: 4; }
+  .slide .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; }
+  .slide .stat { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 14px; padding: 26px 28px; display: flex; flex-direction: column; gap: 8px; animation: vaani-pop 0.6s var(--ease) both; animation-delay: calc(160ms + var(--k, 0) * 90ms); }
+  .slide .stat:nth-child(2) { --k: 1; } .slide .stat:nth-child(3) { --k: 2; } .slide .stat:nth-child(n+4) { --k: 3; }
+  .slide .stat b { font-family: var(--font-mono); font-size: 60px; line-height: 1; font-weight: 700; color: var(--accent); }
+  .slide .stat span { font-size: 20px; line-height: 1.3; color: var(--fg-muted); }
+  .slide .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+  .slide .cols > .card { display: flex; flex-direction: column; gap: 16px; }
+  .slide .cols ul.points li { font-size: 26px; }
+  .slide .hbars { display: flex; flex-direction: column; gap: 16px; }
+  .slide .hbar { display: grid; grid-template-columns: 220px 1fr 90px; align-items: center; gap: 18px; font-size: 24px; }
+  .slide .hbar > span { font-weight: 600; text-align: right; }
+  .slide .hbar > i { display: block; height: 30px; width: var(--w, 50%); border-radius: 8px; background: var(--accent); transform-origin: left center; animation: vaani-bar 0.7s var(--ease) both; animation-delay: 200ms; }
+  .slide .hbar > em { font: 700 22px var(--font-mono); font-style: normal; color: var(--fg-muted); }
+
   .chrome {
     position: absolute; left: 0; right: 0; bottom: 0; height: ${CHROME_HEIGHT}px;
     display: flex; align-items: center; justify-content: space-between;
     padding: 0 40px; border-top: 1px solid var(--border);
-    background: rgba(27, 30, 36, 0.72);
+    background: var(--chrome-bg);
     font-size: 15px; color: var(--fg-muted);
   }
   .chrome-left { display: flex; align-items: center; gap: 12px; min-width: 0; }
   .chrome-mark { display: inline-flex; align-items: center; justify-content: center; gap: 2px; width: 24px; height: 24px; border-radius: 7px; background: var(--accent); }
-  .chrome-mark i { display: block; width: 2px; border-radius: 2px; background: #10131a; }
+  .chrome-mark i { display: block; width: 2px; border-radius: 2px; background: var(--chrome-ink); }
   .chrome-scene { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 640px; }
   .chrome-scene b { color: var(--fg); font-weight: 600; }
   .chrome-steps { display: flex; gap: 6px; align-items: center; }
-  .chrome-steps span { display: block; width: 26px; height: 4px; border-radius: 4px; background: rgba(255, 255, 255, 0.12); }
-  .chrome-steps span.done { background: rgba(97, 175, 239, 0.45); }
+  .chrome-steps span { display: block; width: 26px; height: 4px; border-radius: 4px; background: var(--step-off); }
+  .chrome-steps span.done { background: var(--step-done); }
   .chrome-steps span.now { background: var(--accent); }
 
   /* Diagram */
   .dg { position: absolute; inset: 0; }
   .dg-title { position: absolute; left: 88px; top: 46px; margin: 0; font-size: 34px; font-weight: 700; letter-spacing: -0.02em; animation: vaani-rise 0.7s var(--ease) both; }
   .dg svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
-  .dg-edge { fill: none; stroke: rgba(145, 153, 168, 0.75); stroke-width: 2.5; stroke-dasharray: 1; stroke-dashoffset: 1; animation: vaani-draw 0.5s var(--ease) both; }
-  .dg-arrow { fill: rgba(145, 153, 168, 0.95); animation: vaani-fade 0.3s ease-out both; }
+  .dg-edge { fill: none; stroke: var(--edge); stroke-width: 2.5; stroke-dasharray: 1; stroke-dashoffset: 1; animation: vaani-draw 0.5s var(--ease) both; }
+  .dg-arrow { fill: var(--edge-arrow); animation: vaani-fade 0.3s ease-out both; }
   .dg-edge-label { font: 600 14px var(--font); fill: var(--fg-muted); animation: vaani-fade 0.4s ease-out both; }
   .dg-edge-label-bg { fill: var(--bg-deep); animation: vaani-fade 0.4s ease-out both; }
   .dg-node rect { fill: var(--bg-elevated); stroke: var(--border); stroke-width: 1.5; }
-  .dg-node.hero rect { fill: rgba(97, 175, 239, 0.14); stroke: rgba(97, 175, 239, 0.7); }
+  .dg-node.hero rect { fill: var(--hero-fill); stroke: var(--hero-line); }
   .dg-node { animation: vaani-pop 0.45s var(--ease) both; transform-box: fill-box; transform-origin: center; }
   .dg-label { font: 700 20px var(--font); fill: var(--fg); }
   .dg-detail { font: 500 14px var(--font); fill: var(--fg-muted); }
@@ -176,8 +232,42 @@ export const DESIGN_SYSTEM_CSS = `
   .demo-title { position: absolute; left: 88px; top: 38px; margin: 0; font-size: 22px; font-weight: 600; color: var(--fg-muted); }
 `;
 
+// The light theme uses the Vaani website's own tokens (see frontend/src/index.css)
+// and its Geist Mono type, so a video looks like it came from the same product.
+const LIGHT_THEME_CSS = `
+  @font-face { font-family: "Geist Mono"; font-weight: 100 900; font-style: normal; src: url(data:font/woff2;base64,${GEIST_MONO_WOFF2_BASE64}) format("woff2"); }
+  :root[data-theme="light"] {
+    --bg: #f7f8fa;
+    --bg-deep: #eef0f4;
+    --bg-elevated: #ffffff;
+    --border: #c9cfd9;
+    --fg: #0e1116;
+    --fg-muted: #5b6472;
+    --accent: #1266e2;
+    --accent-warm: #a56d00;
+    --success: #1f8a4c;
+    --grid: rgba(14, 17, 22, 0.05);
+    --chrome-bg: rgba(255, 255, 255, 0.86);
+    --chrome-ink: #ffffff;
+    --step-off: rgba(14, 17, 22, 0.12);
+    --step-done: rgba(18, 102, 226, 0.4);
+    --edge: rgba(91, 100, 114, 0.8);
+    --edge-arrow: rgba(91, 100, 114, 0.95);
+    --hero-fill: #e7f0fd;
+    --hero-line: #1266e2;
+    --window-bg: #ffffff;
+    --window-line: #c9cfd9;
+    --shadow: rgba(14, 17, 22, 0.16);
+    --page-glow: #ffffff;
+    --font: "Geist Mono", "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --font-mono: "Geist Mono", "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  :root[data-theme="light"] .slide .card, :root[data-theme="light"] .slide table.data, :root[data-theme="light"] .slide .stat, :root[data-theme="light"] .dg-node rect, :root[data-theme="light"] .ch-track { box-shadow: 0 1px 2px rgba(14, 17, 22, 0.06); }
+  :root[data-theme="light"] .slide h1, :root[data-theme="light"] .slide .statement { letter-spacing: -0.04em; }
+`;
+
 export function chromeHtml(chrome: BeatChrome | undefined): string {
-  if (!chrome) return "";
+  if (!chrome || chrome.beatCount === 0) return "";
   const steps = Array.from({ length: chrome.beatCount }, (_, i) =>
     `<span class="${i < chrome.beatIndex ? "done" : i === chrome.beatIndex ? "now" : ""}"></span>`,
   ).join("");
@@ -198,17 +288,19 @@ export function pageHtml(
   extraCss = "",
   options: { scaleStage?: boolean } = {},
 ): string {
+  const theme = chrome?.theme ?? DEFAULT_VIDEO_THEME;
   const face = chrome?.hasFace === true;
   const scaleStage = face && options.scaleStage !== false;
   const faceCss = face
     ? `
-    .face-ring { position: absolute; left: ${FACE_BUBBLE.x}px; top: ${FACE_BUBBLE.y}px; width: ${FACE_BUBBLE.size}px; height: ${FACE_BUBBLE.size}px; border-radius: 50%; background: #0e1014; box-shadow: 0 0 0 3px rgba(255,255,255,0.16), 0 18px 50px rgba(0,0,0,0.55); }
+    .face-ring { position: absolute; left: ${FACE_BUBBLE.x}px; top: ${FACE_BUBBLE.y}px; width: ${FACE_BUBBLE.size}px; height: ${FACE_BUBBLE.size}px; border-radius: 50%; background: var(--window-bg); box-shadow: 0 0 0 3px var(--window-line), 0 18px 50px var(--shadow); }
     ${scaleStage ? `.stage { inset: auto; left: 0; top: ${FACE_STAGE_TOP}px; width: ${FRAME_WIDTH}px; height: ${FRAME_HEIGHT - CHROME_HEIGHT}px; transform: scale(${FACE_STAGE_SCALE}); transform-origin: 0 0; }` : ""}`
     : "";
-  return `<!doctype html><html><head><meta charset="utf-8"><style>
+  return `<!doctype html><html data-theme="${theme}"><head><meta charset="utf-8"><style>
     * { box-sizing: border-box; }
     html, body { margin: 0; width: ${FRAME_WIDTH}px; height: ${FRAME_HEIGHT}px; overflow: hidden; }
     ${DESIGN_SYSTEM_CSS}
+    ${theme === "light" ? LIGHT_THEME_CSS : ""}
     ${extraCss}
     ${faceCss}
   </style></head><body><div class="stage">${stageHtml}</div>${face ? '<div class="face-ring"></div>' : ""}${chromeHtml(chrome)}</body></html>`;
@@ -433,8 +525,8 @@ export function demoFrameHtml(caption: string, chrome: BeatChrome | undefined, w
     chrome,
     `
     .demo-title { top: 24px; left: ${win.x}px; font-size: 20px; max-width: ${win.w}px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .demo-label { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #9199a8; font-size: 30px; text-align: center; padding: 0 80px; }
-    .demo-window { position: absolute; left: ${win.x}px; top: ${win.y}px; width: ${win.w}px; height: ${win.h}px; border-radius: 14px; background: #0e1014; outline: 1px solid rgba(255,255,255,0.14); box-shadow: 0 30px 80px rgba(0,0,0,0.55); }
+    .demo-label { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--fg-muted); font-size: 30px; text-align: center; padding: 0 80px; }
+    .demo-window { position: absolute; left: ${win.x}px; top: ${win.y}px; width: ${win.w}px; height: ${win.h}px; border-radius: 14px; background: var(--window-bg); outline: 1px solid var(--window-line); box-shadow: 0 30px 80px var(--shadow); }
   `,
     { scaleStage: false },
   );

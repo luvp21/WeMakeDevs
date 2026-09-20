@@ -32,6 +32,7 @@ import {
   type AuthConfig,
   type Session,
   type ScriptLanguage,
+  type VideoTheme,
   type SceneGenResponse,
   type PlannedScene,
 } from "@vaani/shared";
@@ -100,6 +101,7 @@ export function ingestRepo(repoUrl: string): Promise<IngestResult> {
 
 export interface GenerateOptions {
   language?: ScriptLanguage;
+  theme?: VideoTheme;
   targetMinutes?: number;
   sourceScript?: string;
 }
