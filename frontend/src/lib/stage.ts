@@ -1,4 +1,4 @@
-import type { ProjectStage } from "@vaani/shared";
+import type { ProjectStage, ProjectSummary, Session } from "@vaani/shared";
 
 export const STAGE_LABEL: Record<ProjectStage, string> = {
   scripted: "Script locked",
@@ -38,4 +38,49 @@ export function relativeTime(iso: string): string {
   if (hours < 24) return `${hours}h ago`;
   const days = Math.round(hours / 24);
   return `${days}d ago`;
+}
+
+// The five pipeline steps, in order. STAGE_STEPS_DONE says how many are finished,
+// so the step at that index is the one in progress.
+export const STEP_NAMES = ["Repo", "Script", "Record", "Sync", "Video"] as const;
+
+// What to do next on a project, in a sentence.
+export function nextStepText(project: ProjectSummary): string {
+  const recorded = project.recorded_scene_ids.length;
+  switch (project.stage) {
+    case "scripted":
+      return `Record scene 1 of ${project.scene_count}`;
+    case "recording":
+      return recorded >= project.scene_count
+        ? "Every scene is recorded. Sync them next"
+        : `Record scene ${recorded + 1} of ${project.scene_count}`;
+    case "synced":
+      return "Everything is synced. Render your video";
+    case "rendering":
+      return "Rendering your video, about a minute";
+    case "done":
+      return "Your video is ready to watch";
+    case "error":
+      return "The render failed. Retry it";
+  }
+}
+
+// "owner/name" as two parts, for a two-line repo heading.
+export function repoParts(title: string): { owner: string; name: string } {
+  const slash = title.indexOf("/");
+  return slash === -1 ? { owner: "", name: title } : { owner: title.slice(0, slash), name: title.slice(slash + 1) };
+}
+
+export function newestFirst(projects: ProjectSummary[]): ProjectSummary[] {
+  return [...projects].sort((a, b) => b.locked_at.localeCompare(a.locked_at));
+}
+
+// What an account has left, in words. Judge and team accounts have no limit.
+export function allowanceText(session: Pick<Session, "role" | "usage" | "limits"> | null | undefined): string | null {
+  if (!session) return null;
+  if (session.role === "judge") return "Sees every project";
+  if (session.role === "team") return "Team account, no limits";
+  if (!session.usage || !session.limits) return null;
+  const left = Math.max(0, session.limits.renders - session.usage.renders);
+  return left > 0 ? `${left} video${left === 1 ? "" : "s"} left` : "Video made";
 }

@@ -25,17 +25,11 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { Logo } from "@/components/Logo";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/lib/auth";
+import { allowanceText } from "@/lib/stage";
 
 function pageTitle(pathname: string): string {
   if (pathname.startsWith("/app/studio")) return "Studio";
   return "Projects";
-}
-
-// What a tester has left, in words. The judge has no limits.
-function allowanceText(usage?: { renders: number }, limits?: { renders: number }): string | null {
-  if (!usage || !limits) return null;
-  const left = Math.max(0, limits.renders - usage.renders);
-  return left > 0 ? `${left} video${left === 1 ? "" : "s"} left` : "Video made";
 }
 
 export function AppShell() {
@@ -97,7 +91,7 @@ export function AppShell() {
                   <span className="flex min-w-0 flex-col text-left leading-tight">
                     <span className="truncate text-sm font-medium">{session?.display_name}</span>
                     <span className="text-xs text-muted-foreground">
-                      {session?.role === "judge" ? "Sees every project" : session?.role === "team" ? "Team account, no limits" : allowanceText(session?.usage, session?.limits)}
+                      {allowanceText(session)}
                     </span>
                   </span>
                   {session?.role === "judge" && (
@@ -138,7 +132,7 @@ export function AppShell() {
               )}
             </div>
           </header>
-          <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 sm:px-6 lg:py-10">
+          <main className="mx-auto w-full max-w-[1600px] flex-1 px-4 py-6 sm:px-6 lg:py-8">
             <Outlet />
           </main>
         </SidebarInset>

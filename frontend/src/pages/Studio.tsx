@@ -9,6 +9,7 @@ import { RenderPanel } from "@/components/RenderPanel";
 import { SyncPanel } from "@/components/SyncPanel";
 import { TeleprompterRecorder } from "@/components/TeleprompterRecorder";
 import { Stepper, type StepId, type StepState } from "@/components/Stepper";
+import { StudioHeader } from "@/components/StudioHeader";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import * as api from "@/lib/api";
@@ -20,7 +21,7 @@ const RENDER_POLL_INTERVAL_MS = 3000;
 const STAGE_TITLE: Record<StepId, { title: string; description: string }> = {
   repo: {
     title: "Turn a repo into a video in your own voice",
-    description: "Paste a public GitHub URL. Vaani reads it and drafts a Hinglish script you can edit.",
+    description: "Paste a public GitHub URL. Vaani reads it and drafts a script in Hinglish or English that you can edit.",
   },
   script: {
     title: "Review the script",
@@ -280,18 +281,22 @@ export default function Studio() {
     );
   }
 
+  const stepIndex = steps.findIndex((s) => s.id === active);
+
   return (
-    <div className="grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-[13rem_minmax(0,1fr)] lg:gap-10">
-      <aside className="min-w-0 lg:sticky lg:top-20 lg:self-start">
-        <Stepper steps={steps} active={active} onSelect={setActive} />
-      </aside>
+    <div className="flex min-w-0 flex-col gap-4">
+      <Stepper steps={steps} active={active} onSelect={setActive} />
 
-      <div className="flex min-w-0 max-w-3xl flex-col gap-6">
-        <div className="flex flex-col gap-1.5">
-          <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">{stage.title}</h1>
-          <p className="max-w-prose text-muted-foreground">{stage.description}</p>
-        </div>
+      <StudioHeader
+        step={stepIndex + 1}
+        stepCount={steps.length}
+        title={stage.title}
+        description={stage.description}
+        repoUrl={script?.repo_url}
+        locked={!!lockedScriptId}
+      />
 
+      <div className="flex min-w-0 flex-col gap-4">
         {error && (
           <Alert variant="destructive">
             <AlertTitle>Something went wrong</AlertTitle>
@@ -332,7 +337,7 @@ export default function Studio() {
         )}
 
         {active === "sync" && script && lockedScriptId && (
-          <div className="flex flex-col gap-6">
+          <div className="grid items-start gap-4 lg:grid-cols-2">
             <SyncPanel
               script={script}
               lockedScriptId={lockedScriptId}
@@ -353,12 +358,14 @@ export default function Studio() {
         )}
 
         {active === "video" && (
-          <RenderPanel
-            canRender={!!narration || synced || !!renderStatus}
-            usingRealRecording={synced}
-            renderStatus={renderStatus}
-            onRender={handleRender}
-          />
+          <div className="mx-auto w-full max-w-4xl">
+            <RenderPanel
+              canRender={!!narration || synced || !!renderStatus}
+              usingRealRecording={synced}
+              renderStatus={renderStatus}
+              onRender={handleRender}
+            />
+          </div>
         )}
       </div>
     </div>

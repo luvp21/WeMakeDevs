@@ -1,36 +1,26 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router";
+import { Link } from "react-router";
 import { toast } from "sonner";
-import { ArrowRight, Clapperboard, MoreHorizontal, Plus } from "lucide-react";
+import { ArrowRight, Play, Plus, RotateCw } from "lucide-react";
 import type { ProjectStage, ProjectSummary } from "@vaani/shared";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card } from "@/components/ui/card";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { cn } from "@/lib/utils";
+import { ProjectCard, StageBadge } from "@/components/app/ProjectCard";
+import { ProjectStepper } from "@/components/app/ProjectStepper";
+import { WatchDialog } from "@/components/app/WatchDialog";
 import { useAuth } from "@/lib/auth";
-import { STAGE_ACTION, STAGE_LABEL, STAGE_STEPS_DONE, relativeTime } from "@/lib/stage";
+import { STAGE_ACTION, STAGE_STEPS_DONE, nextStepText, newestFirst, repoParts } from "@/lib/stage";
 import * as api from "@/lib/api";
 
 type Filter = "all" | "progress" | "done";
 const POLL_MS = 5000;
-const TOTAL_STEPS = 5;
+
+// Kept between visits so coming back from the Studio shows the list at once
+// while a fresh copy loads.
+let cachedProjects: ProjectSummary[] | null = null;
 
 function matches(filter: Filter, stage: ProjectStage): boolean {
   if (filter === "all") return true;
@@ -38,62 +28,111 @@ function matches(filter: Filter, stage: ProjectStage): boolean {
   return stage !== "done";
 }
 
-function StageBadge({ stage }: { stage: ProjectStage }) {
+// The progress bar across the top, with the next step under it. It follows the
+// project you would pick up (the judge sees the newest one, since the rest are
+// other people's), or explains the flow when there is nothing yet.
+function FocusPanel({ project, isJudge, onWatch }: { project: ProjectSummary | null; isJudge: boolean; onWatch: (p: ProjectSummary) => void }) {
+  const studioPath = project ? `/app/studio/${project.script_id}` : "/app/studio";
   return (
-    <Badge
-      variant="secondary"
-      className={cn(
-        stage === "done" && "text-success",
-        stage === "error" && "text-destructive",
-        stage === "rendering" && "text-primary",
-      )}
-    >
-      {STAGE_LABEL[stage]}
-    </Badge>
-  );
-}
-
-function StepDots({ done }: { done: number }) {
-  return (
-    <span className="flex items-center gap-1" role="img" aria-label={`${done} of ${TOTAL_STEPS} steps complete`}>
-      {Array.from({ length: TOTAL_STEPS }, (_, i) => (
-        <span key={i} className={cn("h-1.5 w-5 rounded-full", i < done ? "bg-primary" : "bg-muted")} />
-      ))}
-    </span>
-  );
-}
-
-function EmptyState() {
-  return (
-    <Card className="items-center gap-4 py-16 text-center">
-      <span className="flex size-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
-        <Clapperboard className="size-5" />
-      </span>
-      <div className="flex flex-col gap-1">
-        <h2 className="text-lg font-semibold">No videos yet</h2>
-        <p className="max-w-sm text-sm text-muted-foreground">
-          Paste a GitHub repo and Vaani drafts the script. You read it aloud, and the visuals cut in on your words.
-        </p>
+    <Card className="gap-0 overflow-hidden border border-line-strong py-0 shadow-xs">
+      <div className="border-b border-line-strong px-4 py-4 sm:px-5">
+        <ProjectStepper labels done={project ? STAGE_STEPS_DONE[project.stage] : 0} failed={project?.stage === "error"} />
       </div>
-      <Button render={<Link to="/app/studio" />}>
-        <Plus data-icon="inline-start" />
-        Make your first video
-      </Button>
+      <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-5">
+        {project ? (
+          <>
+            <div className="flex min-w-0 flex-col gap-0.5">
+              <span className="font-mono text-xs text-muted-foreground">
+                {isJudge ? "Latest project" : project.stage === "done" ? "Latest video" : "Continue where you left off"}
+              </span>
+              <span className="flex flex-wrap items-center gap-2">
+                <span className="font-mono text-base font-semibold">{repoParts(project.title).name}</span>
+                <StageBadge stage={project.stage} />
+                <span className="font-mono text-sm text-muted-foreground">{nextStepText(project)}</span>
+              </span>
+            </div>
+            {project.stage === "done" ? (
+              <Button size="sm" onClick={() => onWatch(project)}>
+                <Play data-icon="inline-start" />
+                Watch video
+              </Button>
+            ) : (
+              <Button size="sm" render={<Link to={studioPath} />}>
+                {STAGE_ACTION[project.stage]}
+                <ArrowRight data-icon="inline-end" />
+              </Button>
+            )}
+          </>
+        ) : (
+          <>
+            <p className="max-w-2xl font-mono text-sm text-muted-foreground">
+              Paste a GitHub repo and Vaani drafts the script. You read it aloud, scene by scene, and the visuals cut in on your words.
+            </p>
+            <Button size="sm" render={<Link to="/app/studio" />}>
+              <Plus data-icon="inline-start" />
+              Make your first video
+            </Button>
+          </>
+        )}
+      </div>
     </Card>
   );
 }
 
+function Stat({ label, value, note }: { label: string; value: string; note?: string }) {
+  return (
+    <Card className="gap-1 border border-line-strong px-4 py-3 shadow-xs">
+      <span className="font-mono text-xs text-muted-foreground">{label}</span>
+      <span className="font-mono text-2xl font-semibold tabular">{value}</span>
+      {note && <span className="font-mono text-xs text-muted-foreground">{note}</span>}
+    </Card>
+  );
+}
+
+function NewVideoTile() {
+  return (
+    <Link
+      to="/app/studio"
+      className="flex min-h-40 flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-line-strong bg-card/40 p-4 text-center font-mono text-sm text-muted-foreground transition-colors hover:border-primary hover:bg-card hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
+    >
+      <span className="flex size-9 items-center justify-center rounded-full border border-line-strong bg-card">
+        <Plus className="size-4" />
+      </span>
+      New video
+    </Link>
+  );
+}
+
+function LoadingState() {
+  return (
+    <div className="flex flex-col gap-4" aria-busy="true">
+      <Skeleton className="h-28 w-full rounded-xl" />
+      <div className="grid gap-4 sm:grid-cols-3">
+        <Skeleton className="h-20 rounded-xl" />
+        <Skeleton className="h-20 rounded-xl" />
+        <Skeleton className="h-20 rounded-xl" />
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+        {[0, 1, 2].map((i) => (
+          <Skeleton key={i} className="h-52 rounded-xl" />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function Dashboard() {
-  const navigate = useNavigate();
   const { session } = useAuth();
   const isJudge = session?.role === "judge";
-  const [projects, setProjects] = useState<ProjectSummary[] | null>(null);
+  const [projects, setProjects] = useState<ProjectSummary[] | null>(cachedProjects);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
+  const [watching, setWatching] = useState<ProjectSummary | null>(null);
 
   const load = useCallback(async () => {
     try {
       const { projects: list } = await api.listProjects();
+      cachedProjects = list;
       setProjects(list);
       setError(null);
     } catch (err) {
@@ -112,8 +151,15 @@ export default function Dashboard() {
     return () => clearInterval(timer);
   }, [anyRendering, load]);
 
-  const visible = useMemo(() => (projects ?? []).filter((p) => matches(filter, p.stage)), [projects, filter]);
-  const inProgress = (projects ?? []).filter((p) => p.stage !== "done").length;
+  const sorted = useMemo(() => newestFirst(projects ?? []), [projects]);
+  const visible = useMemo(() => sorted.filter((p) => matches(filter, p.stage)), [sorted, filter]);
+  const inProgress = sorted.filter((p) => p.stage !== "done").length;
+  const finished = sorted.length - inProgress;
+  const focus = isJudge ? (sorted[0] ?? null) : (sorted.find((p) => p.stage !== "done") ?? sorted[0] ?? null);
+
+  const limited = session?.limits !== undefined && session.usage !== undefined;
+  const left = limited ? Math.max(0, session.limits!.renders - session.usage!.renders) : null;
+  const canMakeMore = left === null || left > 0;
 
   function copyLink(id: string) {
     void navigator.clipboard.writeText(`${window.location.origin}/app/studio/${id}`);
@@ -121,132 +167,66 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex flex-col gap-1.5">
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-1">
         <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Projects</h1>
-        <p className="text-muted-foreground">
-          Every locked script is a project. Pick one up where you left it.
-        </p>
+        <p className="font-mono text-sm text-muted-foreground">Every locked script is a project. Pick one up where you left it.</p>
       </div>
 
       {error && (
         <Alert variant="destructive">
           <AlertTitle>Couldn't load your projects</AlertTitle>
-          <AlertDescription>{error}</AlertDescription>
+          <AlertDescription className="flex flex-wrap items-center justify-between gap-3">
+            <span>{error}</span>
+            <Button variant="outline" size="sm" onClick={() => void load()}>
+              <RotateCw data-icon="inline-start" />
+              Try again
+            </Button>
+          </AlertDescription>
         </Alert>
       )}
 
-      {projects === null && !error && (
-        <div className="flex flex-col gap-2" aria-busy="true">
-          <Skeleton className="h-10 w-full" />
-          <Skeleton className="h-14 w-full" />
-          <Skeleton className="h-14 w-full" />
-          <Skeleton className="h-14 w-full" />
-        </div>
-      )}
+      {projects === null && !error && <LoadingState />}
 
-      {projects !== null && projects.length === 0 && <EmptyState />}
+      {projects !== null && (
+        <>
+          <FocusPanel project={focus} isJudge={isJudge} onWatch={setWatching} />
 
-      {projects !== null && projects.length > 0 && (
-        <div className="flex flex-col gap-4">
-          <Tabs value={filter} onValueChange={(value) => setFilter(value as Filter)}>
-            <TabsList>
-              <TabsTrigger value="all">All ({projects.length})</TabsTrigger>
-              <TabsTrigger value="progress">In progress ({inProgress})</TabsTrigger>
-              <TabsTrigger value="done">Finished ({projects.length - inProgress})</TabsTrigger>
-            </TabsList>
-          </Tabs>
+          <div className="grid gap-4 sm:grid-cols-3">
+            <Stat
+              label="Videos left"
+              value={left === null ? "Unlimited" : String(left)}
+              note={left === null ? undefined : "One video, up to 3 minutes"}
+            />
+            <Stat label="In progress" value={String(inProgress)} />
+            <Stat label="Finished" value={String(finished)} />
+          </div>
 
-          <Card className="overflow-hidden py-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="pl-4">Project</TableHead>
-                  {isJudge && <TableHead>Made by</TableHead>}
-                  <TableHead>Status</TableHead>
-                  <TableHead className="hidden md:table-cell">Progress</TableHead>
-                  <TableHead className="hidden sm:table-cell">Recorded</TableHead>
-                  <TableHead className="hidden lg:table-cell">Created</TableHead>
-                  <TableHead className="w-0 pr-4">
-                    <span className="sr-only">Actions</span>
-                  </TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
+          {projects.length > 0 && (
+            <>
+              <Tabs value={filter} onValueChange={(value) => setFilter(value as Filter)}>
+                <TabsList>
+                  <TabsTrigger value="all">All ({projects.length})</TabsTrigger>
+                  <TabsTrigger value="progress">In progress ({inProgress})</TabsTrigger>
+                  <TabsTrigger value="done">Finished ({finished})</TabsTrigger>
+                </TabsList>
+              </Tabs>
+
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
                 {visible.map((project) => (
-                  <TableRow
-                    key={project.script_id}
-                    className="cursor-pointer"
-                    onClick={() => navigate(`/app/studio/${project.script_id}`)}
-                  >
-                    <TableCell className="pl-4">
-                      <div className="flex flex-col">
-                        <span className="font-mono text-sm font-medium">{project.title}</span>
-                        <span className="text-xs text-muted-foreground tabular">
-                          {project.scene_count} {project.scene_count === 1 ? "scene" : "scenes"}, {project.beat_count}{" "}
-                          {project.beat_count === 1 ? "beat" : "beats"}
-                        </span>
-                      </div>
-                    </TableCell>
-                    {isJudge && (
-                      <TableCell className="text-muted-foreground">{project.owner_name ?? project.owner ?? "Before accounts"}</TableCell>
-                    )}
-                    <TableCell>
-                      <StageBadge stage={project.stage} />
-                    </TableCell>
-                    <TableCell className="hidden md:table-cell">
-                      <StepDots done={STAGE_STEPS_DONE[project.stage]} />
-                    </TableCell>
-                    <TableCell className="hidden text-muted-foreground tabular sm:table-cell">
-                      {project.recorded_scene_ids.length}/{project.scene_count}
-                    </TableCell>
-                    <TableCell className="hidden text-muted-foreground tabular lg:table-cell">
-                      {relativeTime(project.locked_at)}
-                    </TableCell>
-                    <TableCell className="pr-4" onClick={(e) => e.stopPropagation()}>
-                      <div className="flex items-center justify-end gap-1">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="hidden sm:inline-flex"
-                          render={<Link to={`/app/studio/${project.script_id}`} />}
-                        >
-                          {STAGE_ACTION[project.stage]}
-                          <ArrowRight data-icon="inline-end" />
-                        </Button>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger
-                            render={
-                              <Button variant="ghost" size="icon" aria-label={`Actions for ${project.title}`} />
-                            }
-                          >
-                            <MoreHorizontal />
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={() => navigate(`/app/studio/${project.script_id}`)}>
-                              Open
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => copyLink(project.script_id)}>
-                              Copy link
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </div>
-                    </TableCell>
-                  </TableRow>
+                  <ProjectCard key={project.script_id} project={project} showOwner={isJudge} onCopyLink={copyLink} onWatch={setWatching} />
                 ))}
-                {visible.length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
-                      Nothing here yet.
-                    </TableCell>
-                  </TableRow>
+                {canMakeMore && filter !== "done" && <NewVideoTile />}
+                {visible.length === 0 && !(canMakeMore && filter !== "done") && (
+                  <p className="col-span-full py-10 text-center font-mono text-sm text-muted-foreground">Nothing here yet.</p>
                 )}
-              </TableBody>
-            </Table>
-          </Card>
-        </div>
+              </div>
+            </>
+          )}
+        </>
       )}
+
+      <WatchDialog project={watching} onClose={() => setWatching(null)} />
     </div>
   );
 }
