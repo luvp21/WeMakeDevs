@@ -21,11 +21,20 @@ Parameters:
     Type: String
     NoEcho: true
     MinLength: 32
-    Description: Signs session tokens (backend/scripts/make-accounts.mjs writes AUTH_SECRET to backend/.env)
-  AuthAccounts:
+    Description: Derives the private judge link key (AUTH_SECRET in backend/.env). Changing it replaces the link.
+  SiteUrl:
+    Type: String
+    Default: "https://10jlhtgcih.execute-api.us-east-1.amazonaws.com"
+    Description: This site's address (the stack output SiteUrl). Google sign-in returns here.
+  GoogleClientId:
+    Type: String
+    Default: ""
+    Description: Optional. OAuth client id from Google Cloud Console; with the secret, switches on "Continue with Google".
+  GoogleClientSecret:
     Type: String
     NoEcho: true
-    Description: JSON list of the fixed accounts with salted password hashes (AUTH_ACCOUNTS in backend/.env)
+    Default: ""
+    Description: Optional. OAuth client secret from Google Cloud Console.
   AlertEmail:
     Type: String
     Default: ""
@@ -39,6 +48,9 @@ Parameters:
 
 Conditions:
   HasAlertEmail: !Not [!Equals [!Ref AlertEmail, ""]]
+  HasGoogle: !And
+    - !Not [!Equals [!Ref GoogleClientId, ""]]
+    - !Not [!Equals [!Ref GoogleClientSecret, ""]]
 
 Globals:
   Function:
@@ -49,7 +61,12 @@ Globals:
       Variables:
         S3_BUCKET: !Ref VaaniBucket
         AUTH_SECRET: !Ref AuthSecret
-        AUTH_ACCOUNTS: !Ref AuthAccounts
+        USER_POOL_ID: !Ref UserPool
+        TESTER_CLIENT_ID: !Ref TesterClient
+        JUDGE_CLIENT_ID: !Ref JudgeClient
+        WEB_CLIENT_ID: !If [HasGoogle, !Ref WebClient, ""]
+        COGNITO_DOMAIN: !If [HasGoogle, !Sub "vaani-${AWS::AccountId}.auth.${AWS::Region}.amazoncognito.com", ""]
+        SITE_URL: !Ref SiteUrl
         USAGE_TABLE: !Ref UsageTable
 
 Resources:
@@ -66,7 +83,8 @@ Resources:
             AllowedMethods: [PUT]
             AllowedHeaders: ["*"]
 
-  # A tester's usage counters (drafts, locks, renders), one item per account. DynamoDB
+  # A tester's usage counters (drafts, locks, renders), one item per account, plus the
+  # per-minute rate-limit counters. DynamoDB
   # so each count is an atomic conditional update: two requests at the same moment
   # can't both take the last render.
   UsageTable:
@@ -74,12 +92,137 @@ Resources:
     Properties:
       TableName: !Sub "${AWS::StackName}-usage"
       BillingMode: PAY_PER_REQUEST
+      # Rate-limit counters ("rate#...") share this table and delete themselves after their minute or day.
+      TimeToLiveSpecification:
+        AttributeName: expires_at
+        Enabled: true
       AttributeDefinitions:
         - AttributeName: username
           AttributeType: S
       KeySchema:
         - AttributeName: username
           KeyType: HASH
+
+  # ----------------------------------------------------------------- sign-in (Cognito)
+  # Fixed users only (tester1, tester2, judge), created by backend/scripts/provision-users.mjs;
+  # nobody can sign themselves up. The API verifies the ID tokens this pool issues.
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub "${AWS::StackName}-users"
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: true
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireLowercase: false
+          RequireUppercase: false
+          RequireNumbers: false
+          RequireSymbols: false
+      MfaConfiguration: "OFF"
+
+  TesterGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      UserPoolId: !Ref UserPool
+      GroupName: tester
+      Description: "Shared demo accounts, one video each"
+
+  TeamGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      UserPoolId: !Ref UserPool
+      GroupName: team
+      Description: "For us to test with: no allowances, no length limit, own projects only"
+
+  JudgeGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      UserPoolId: !Ref UserPool
+      GroupName: judge
+      Description: "Sees every project, signs in only through the private link"
+
+  # Two app clients so the two kinds of session can last different times: a
+  # tester's shared account shouldn't stay signed in for weeks, while the judge,
+  # who has only a link, needs a long one. Sign-in is done by our own Lambda
+  # (an admin call), so no client secret is needed in the browser.
+  TesterClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      UserPoolId: !Ref UserPool
+      ClientName: tester
+      GenerateSecret: false
+      ExplicitAuthFlows: [ALLOW_ADMIN_USER_PASSWORD_AUTH, ALLOW_REFRESH_TOKEN_AUTH]
+      PreventUserExistenceErrors: ENABLED
+      IdTokenValidity: 60
+      AccessTokenValidity: 60
+      RefreshTokenValidity: 1
+      TokenValidityUnits: { IdToken: minutes, AccessToken: minutes, RefreshToken: days }
+
+  JudgeClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      UserPoolId: !Ref UserPool
+      ClientName: judge
+      GenerateSecret: false
+      ExplicitAuthFlows: [ALLOW_ADMIN_USER_PASSWORD_AUTH, ALLOW_REFRESH_TOKEN_AUTH]
+      PreventUserExistenceErrors: ENABLED
+      IdTokenValidity: 60
+      AccessTokenValidity: 60
+      RefreshTokenValidity: 30
+      TokenValidityUnits: { IdToken: minutes, AccessToken: minutes, RefreshToken: days }
+
+  # ----------------------------------------------------------------- Google sign-in
+  # "Continue with Google": Cognito's hosted page sends people to Google and back. Off unless
+  # both Google parameters are given. Someone who signs in this way has no group; being
+  # federated makes them a "member" (one video, like a tester).
+  UserPoolDomain:
+    Type: AWS::Cognito::UserPoolDomain
+    Condition: HasGoogle
+    Properties:
+      UserPoolId: !Ref UserPool
+      Domain: !Sub "vaani-${AWS::AccountId}"
+
+  GoogleIdentityProvider:
+    Type: AWS::Cognito::UserPoolIdentityProvider
+    Condition: HasGoogle
+    Properties:
+      UserPoolId: !Ref UserPool
+      ProviderName: Google
+      ProviderType: Google
+      ProviderDetails:
+        client_id: !Ref GoogleClientId
+        client_secret: !Ref GoogleClientSecret
+        authorize_scopes: "openid email profile"
+      AttributeMapping:
+        email: email
+        name: name
+        username: sub
+
+  WebClient:
+    Type: AWS::Cognito::UserPoolClient
+    Condition: HasGoogle
+    DependsOn: GoogleIdentityProvider
+    Properties:
+      UserPoolId: !Ref UserPool
+      ClientName: web
+      GenerateSecret: false
+      SupportedIdentityProviders: [Google]
+      AllowedOAuthFlowsUserPoolClient: true
+      AllowedOAuthFlows: [code]
+      AllowedOAuthScopes: [openid, email, profile]
+      CallbackURLs:
+        - !Sub "${SiteUrl}/auth/callback"
+        - http://localhost:5173/auth/callback
+      LogoutURLs:
+        - !Ref SiteUrl
+        - http://localhost:5173
+      ExplicitAuthFlows: [ALLOW_REFRESH_TOKEN_AUTH]
+      PreventUserExistenceErrors: ENABLED
+      IdTokenValidity: 60
+      AccessTokenValidity: 60
+      RefreshTokenValidity: 1
+      TokenValidityUnits: { IdToken: minutes, AccessToken: minutes, RefreshToken: days }
 
   VaaniHttpApi:
     Type: AWS::Serverless::HttpApi
@@ -102,6 +245,12 @@ Resources:
       Handler: auth.handler
       CodeUri: src
       Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - cognito-idp:AdminInitiateAuth
+                - cognito-idp:AdminSetUserPassword
+              Resource: !GetAtt UserPool.Arn
         - DynamoDBCrudPolicy:
             TableName: !Ref UsageTable
         - S3CrudPolicy:
@@ -118,6 +267,24 @@ Resources:
           Properties:
             ApiId: !Ref VaaniHttpApi
             Path: /api/auth/judge-link
+            Method: POST
+        Google:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref VaaniHttpApi
+            Path: /api/auth/google
+            Method: POST
+        Config:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref VaaniHttpApi
+            Path: /api/auth/config
+            Method: GET
+        Refresh:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref VaaniHttpApi
+            Path: /api/auth/refresh
             Method: POST
         Me:
           Type: HttpApi
@@ -142,6 +309,8 @@ Resources:
         Variables:
           GITHUB_TOKEN: !Ref GithubToken
       Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UsageTable
         - S3CrudPolicy:
             BucketName: !Ref VaaniBucket
       Events:
@@ -230,6 +399,9 @@ Resources:
         Variables:
           LLM_PROVIDER: "gemini"
           GEMINI_API_KEY: !Ref GeminiApiKey
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UsageTable
       Events:
         Api:
           Type: HttpApi
@@ -255,6 +427,9 @@ Resources:
         Variables:
           LLM_PROVIDER: "gemini"
           GEMINI_API_KEY: !Ref GeminiApiKey
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UsageTable
       Events:
         SceneGen:
           Type: HttpApi
@@ -305,6 +480,8 @@ Resources:
         Variables:
           POLLY_ENGINE: "neural"
       Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UsageTable
         - S3CrudPolicy:
             BucketName: !Ref VaaniBucket
         - Statement:
@@ -561,6 +738,8 @@ Resources:
       Handler: renderStatus.handler
       CodeUri: src
       Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UsageTable
         - S3CrudPolicy:
             BucketName: !Ref VaaniBucket
       Events:
@@ -584,6 +763,8 @@ Resources:
       Handler: recordingUploadUrl.handler
       CodeUri: src
       Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UsageTable
         - S3CrudPolicy:
             BucketName: !Ref VaaniBucket
       Events:
@@ -618,6 +799,8 @@ Resources:
       EventInvokeConfig:
         MaximumRetryAttempts: 0
       Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UsageTable
         - Statement:
             - Effect: Allow
               Action: lambda:InvokeFunction
@@ -654,6 +837,8 @@ Resources:
         Variables:
           STT_PROVIDER: "groq"
       Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UsageTable
         - S3CrudPolicy:
             BucketName: !Ref VaaniBucket
         - Statement:
@@ -684,6 +869,8 @@ Resources:
         Variables:
           STT_PROVIDER: "groq"
       Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UsageTable
         - S3CrudPolicy:
             BucketName: !Ref VaaniBucket
         - Statement:
@@ -711,6 +898,8 @@ Resources:
       Handler: projects.listHandler
       CodeUri: src
       Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UsageTable
         - S3CrudPolicy:
             BucketName: !Ref VaaniBucket
       Events:
@@ -734,6 +923,8 @@ Resources:
       Handler: projects.getHandler
       CodeUri: src
       Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UsageTable
         - S3CrudPolicy:
             BucketName: !Ref VaaniBucket
       Events:
@@ -780,6 +971,16 @@ Resources:
             Method: GET
 
 Outputs:
+  UserPoolId:
+    Description: Cognito user pool (put in backend/.env as USER_POOL_ID)
+    Value: !Ref UserPool
+  GoogleRedirectUri:
+    Description: Add this to "Authorized redirect URIs" of the Google OAuth client (Google sign-in returns through Cognito)
+    Value: !Sub "https://vaani-${AWS::AccountId}.auth.${AWS::Region}.amazoncognito.com/oauth2/idpresponse"
+  TesterClientId:
+    Value: !Ref TesterClient
+  JudgeClientId:
+    Value: !Ref JudgeClient
   RenderStateMachineArn:
     Description: The render workflow
     Value: !Ref RenderStateMachine

@@ -83,14 +83,12 @@ export function AppShell() {
           </SidebarContent>
           <SidebarFooter className="border-t">
             <SidebarMenu>
-              {session?.role === "judge" && (
-                <SidebarMenuItem>
-                  <SidebarMenuButton tooltip="Back to site" render={<NavLink to="/" />}>
-                    <Home />
-                    <span>Back to site</span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              )}
+              <SidebarMenuItem>
+                <SidebarMenuButton tooltip="Back to site" render={<NavLink to="/" />}>
+                  <Home />
+                  <span>Back to site</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
               <SidebarMenuItem>
                 <SidebarMenuButton size="lg" className="pointer-events-none">
                   <Avatar className="size-7">
@@ -99,7 +97,7 @@ export function AppShell() {
                   <span className="flex min-w-0 flex-col text-left leading-tight">
                     <span className="truncate text-sm font-medium">{session?.display_name}</span>
                     <span className="text-xs text-muted-foreground">
-                      {session?.role === "judge" ? "Sees every project" : allowanceText(session?.usage, session?.limits)}
+                      {session?.role === "judge" ? "Sees every project" : session?.role === "team" ? "Team account, no limits" : allowanceText(session?.usage, session?.limits)}
                     </span>
                   </span>
                   {session?.role === "judge" && (

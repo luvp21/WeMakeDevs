@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { LoginResponse, Session } from "@vaani/shared";
 import * as api from "@/lib/api";
 
@@ -6,6 +6,8 @@ const STORAGE_KEY = "vaani.session";
 
 interface Stored {
   token: string;
+  // Renews the token, which lasts an hour, without signing in again.
+  refresh_token: string;
   expires_at: string;
   session: Session;
 }
@@ -17,7 +19,8 @@ function readStored(): Stored | null {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
     const stored = JSON.parse(raw) as Stored;
-    return new Date(stored.expires_at).getTime() > Date.now() ? stored : null;
+    // An expired token is fine while there is a refresh token to renew it with.
+    return stored.refresh_token ? stored : null;
   } catch {
     return null;
   }
@@ -37,6 +40,8 @@ interface AuthValue {
   // True until the stored sign-in has been checked with the server.
   checking: boolean;
   signIn: (username: string, password: string) => Promise<Session>;
+  // Finishes "Continue with Google".
+  signInWithGoogle: (code: string, codeVerifier: string, redirectUri: string) => Promise<Session>;
   // Signs in as the judge from the key in the private link.
   signInWithJudgeLink: (key: string) => Promise<Session>;
   signOut: () => void;
@@ -68,6 +73,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .finally(() => setChecking(false));
   }, [apply]);
 
+  // Renews the token from the refresh token. Several calls can find it expired at the
+  // same moment, so they share one renewal.
+  const renewing = useRef<Promise<string | null> | null>(null);
+  useEffect(() => {
+    api.setRefreshHandler(() => {
+      if (renewing.current) return renewing.current;
+      const current = readStored();
+      if (!current) return Promise.resolve(null);
+      renewing.current = api
+        .refreshSession(current.refresh_token, current.session.role)
+        .then(({ token, expires_at }) => {
+          apply({ ...current, token, expires_at });
+          return token;
+        })
+        .catch(() => null)
+        .finally(() => {
+          renewing.current = null;
+        });
+      return renewing.current;
+    });
+    return () => api.setRefreshHandler(null);
+  }, [apply]);
+
   // Any call the server answers with "please sign in" ends the session here.
   useEffect(() => {
     const onUnauthorized = () => apply(null);
@@ -78,8 +106,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signIn = useCallback(
     async (username: string, password: string) => {
       const response: LoginResponse = await api.login(username, password);
-      const { token, expires_at, ...session } = response;
-      apply({ token, expires_at, session });
+      const { token, refresh_token, expires_at, ...session } = response;
+      apply({ token, refresh_token, expires_at, session });
       return session;
     },
     [apply],
@@ -87,8 +115,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signInWithJudgeLink = useCallback(
     async (key: string) => {
-      const { token, expires_at, ...session } = await api.judgeLink(key);
-      apply({ token, expires_at, session });
+      const { token, refresh_token, expires_at, ...session } = await api.judgeLink(key);
+      apply({ token, refresh_token, expires_at, session });
+      return session;
+    },
+    [apply],
+  );
+
+  const signInWithGoogle = useCallback(
+    async (code: string, codeVerifier: string, redirectUri: string) => {
+      const { token, refresh_token, expires_at, ...session } = await api.googleSignIn(code, codeVerifier, redirectUri);
+      apply({ token, refresh_token, expires_at, session });
       return session;
     },
     [apply],
@@ -104,8 +141,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [apply]);
 
   const value = useMemo(
-    () => ({ session: stored?.session ?? null, checking, signIn, signInWithJudgeLink, signOut, refresh }),
-    [stored, checking, signIn, signInWithJudgeLink, signOut, refresh],
+    () => ({ session: stored?.session ?? null, checking, signIn, signInWithGoogle, signInWithJudgeLink, signOut, refresh }),
+    [stored, checking, signIn, signInWithGoogle, signInWithJudgeLink, signOut, refresh],
   );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

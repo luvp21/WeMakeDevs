@@ -1,58 +1,94 @@
 import type { APIGatewayProxyEventV2, APIGatewayProxyStructuredResultV2 } from "aws-lambda";
-import { JudgeLinkRequestSchema, LoginRequestSchema, TESTER_LIMITS, type LoginResponse, type Session } from "@vaani/shared";
+import {
+  GoogleSignInRequestSchema,
+  hasLimits,
+  JudgeLinkRequestSchema,
+  LoginRequestSchema,
+  RefreshRequestSchema,
+  TESTER_LIMITS,
+  type AuthConfig,
+  type LoginResponse,
+  type RefreshResponse,
+  type Session,
+} from "@vaani/shared";
 import { ZodError } from "zod";
 import { authenticate, HttpError } from "../lib/auth/access.js";
-import { checkLogin, loadAccounts, type Account } from "../lib/auth/accounts.js";
+import { googleSignIn, judgeSignIn, passwordSignIn, refreshSession, type Tokens } from "../lib/auth/cognito.js";
+import { enforceRate } from "../lib/auth/rateLimit.js";
 import { checkJudgeLinkKey } from "../lib/auth/judgeLink.js";
 import { getUsage } from "../lib/auth/quota.js";
-import { signToken } from "../lib/auth/token.js";
+import { sessionExpiry, verifyIdToken, type Auth } from "../lib/auth/verify.js";
 import { errorResponse } from "./secure.js";
 
-// How long a sign-in lasts. Testers are short, so a shared account can't be
-// left open on someone's laptop for long; the judge looks around over days and, with
-// only a link, has no password to sign in again with, so it is long.
-const SESSION_HOURS = { tester: 6, judge: 72 } as const;
-// Slows password guessing on top of the API's rate limit.
-const FAILED_LOGIN_DELAY_MS = 500;
+// Slows guessing on top of the API's rate limit and Cognito's own lockout.
+const FAILED_ATTEMPT_DELAY_MS = 500;
 
-async function sessionFor(username: string, role: "tester" | "judge", name: string): Promise<Session> {
-  return role === "tester"
-    ? { username, display_name: name, role, usage: await getUsage(username), limits: TESTER_LIMITS }
-    : { username, display_name: name, role };
+async function sessionFor(auth: Auth): Promise<Session> {
+  return hasLimits(auth.role)
+    ? { username: auth.username, display_name: auth.name, role: auth.role, usage: await getUsage(auth.username), limits: TESTER_LIMITS }
+    : { username: auth.username, display_name: auth.name, role: auth.role };
 }
 
-async function startSession(account: Account): Promise<LoginResponse> {
-  const exp = Math.floor(Date.now() / 1000) + SESSION_HOURS[account.role] * 3600;
+// Turns Cognito's tokens into what the app stores: who signed in, and the tokens.
+async function startSession(tokens: Tokens): Promise<LoginResponse> {
+  const auth = await verifyIdToken(tokens.idToken);
+  if (!auth) throw new HttpError(401, "This account isn't set up for Vaani.");
+  if (!tokens.refreshToken) throw new Error("Cognito returned no refresh token");
   return {
-    ...(await sessionFor(account.username, account.role, account.name)),
-    token: signToken({ sub: account.username, role: account.role, name: account.name, exp }),
-    expires_at: new Date(exp * 1000).toISOString(),
+    ...(await sessionFor(auth)),
+    token: tokens.idToken,
+    refresh_token: tokens.refreshToken,
+    expires_at: sessionExpiry(tokens.idToken),
   };
 }
 
 async function refuse(message: string): Promise<never> {
-  await new Promise((resolve) => setTimeout(resolve, FAILED_LOGIN_DELAY_MS));
+  await new Promise((resolve) => setTimeout(resolve, FAILED_ATTEMPT_DELAY_MS));
   throw new HttpError(401, message);
 }
 
-export async function login(body: unknown): Promise<LoginResponse> {
+export async function login(body: unknown, ip = "unknown"): Promise<LoginResponse> {
+  await enforceRate(ip, "login");
   const parsed = LoginRequestSchema.parse(body);
-  const account = checkLogin(parsed.username, parsed.password);
-  return account ? startSession(account) : refuse("That username or password isn't right.");
+  try {
+    return await startSession(await passwordSignIn(parsed.username, parsed.password));
+  } catch (err) {
+    if (err instanceof HttpError && err.status === 401) return refuse(err.message);
+    throw err;
+  }
 }
 
-// Opening the private judge link signs in as the judge account.
-export async function judgeLink(body: unknown): Promise<LoginResponse> {
+// Opening the private judge link. The key is checked here, before Cognito is
+// involved, so a wrong key can never touch (or lock) the judge account.
+export async function judgeLink(body: unknown, ip = "unknown"): Promise<LoginResponse> {
+  await enforceRate(ip, "login");
   const parsed = JudgeLinkRequestSchema.safeParse(body);
   if (!parsed.success || !checkJudgeLinkKey(parsed.data.key)) return refuse("This link isn't valid.");
-  const judge = loadAccounts().find((a) => a.role === "judge");
-  if (!judge) throw new Error("No judge account is configured");
-  return startSession(judge);
+  return startSession(await judgeSignIn());
+}
+
+// Coming back from Google via Cognito's hosted page.
+export async function google(body: unknown, ip = "unknown"): Promise<LoginResponse> {
+  await enforceRate(ip, "login");
+  const parsed = GoogleSignInRequestSchema.parse(body);
+  return startSession(await googleSignIn(parsed.code, parsed.code_verifier, parsed.redirect_uri));
+}
+
+// Whether Google sign-in is switched on (it needs credentials from Google Cloud), and where to send people.
+export function authConfig(): AuthConfig {
+  const domain = process.env.COGNITO_DOMAIN;
+  const clientId = process.env.WEB_CLIENT_ID;
+  return { google: domain && clientId ? { authorize_url: `https://${domain}/oauth2/authorize`, client_id: clientId } : null };
+}
+
+export async function refresh(body: unknown): Promise<RefreshResponse> {
+  const parsed = RefreshRequestSchema.parse(body);
+  const tokens = await refreshSession(parsed.role, parsed.refresh_token);
+  return { token: tokens.idToken, expires_at: sessionExpiry(tokens.idToken) };
 }
 
 export async function me(authorization: string | undefined): Promise<Session> {
-  const auth = authenticate(authorization);
-  return sessionFor(auth.username, auth.role, auth.name);
+  return sessionFor(await authenticate(authorization));
 }
 
 function fail(err: unknown): APIGatewayProxyStructuredResultV2 {
@@ -61,12 +97,15 @@ function fail(err: unknown): APIGatewayProxyStructuredResultV2 {
   return { statusCode: 500, body: JSON.stringify({ error: (err as Error).message }) };
 }
 
-// One function for the auth routes: POST /api/auth/login, POST /api/auth/judge-link, GET /api/auth/me.
+// One function for the auth routes: POST /api/auth/login, /judge-link, /google and /refresh; GET /api/auth/me and /config.
 export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGatewayProxyStructuredResultV2> => {
   try {
     const body = event.body ? JSON.parse(event.body) : {};
-    if (event.rawPath.endsWith("/auth/login")) return { statusCode: 200, body: JSON.stringify(await login(body)) };
-    if (event.rawPath.endsWith("/auth/judge-link")) return { statusCode: 200, body: JSON.stringify(await judgeLink(body)) };
+    if (event.rawPath.endsWith("/auth/login")) return { statusCode: 200, body: JSON.stringify(await login(body, event.requestContext?.http?.sourceIp)) };
+    if (event.rawPath.endsWith("/auth/judge-link")) return { statusCode: 200, body: JSON.stringify(await judgeLink(body, event.requestContext?.http?.sourceIp)) };
+    if (event.rawPath.endsWith("/auth/google")) return { statusCode: 200, body: JSON.stringify(await google(body, event.requestContext?.http?.sourceIp)) };
+    if (event.rawPath.endsWith("/auth/config")) return { statusCode: 200, body: JSON.stringify(authConfig()) };
+    if (event.rawPath.endsWith("/auth/refresh")) return { statusCode: 200, body: JSON.stringify(await refresh(body)) };
     return { statusCode: 200, body: JSON.stringify(await me(event.headers?.authorization)) };
   } catch (err) {
     return fail(err);

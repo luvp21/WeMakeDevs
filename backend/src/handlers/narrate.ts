@@ -4,7 +4,7 @@ import { ZodError } from "zod";
 import { getLockedScript } from "../lib/lockScript.js";
 import { narrateScript } from "../lib/narration/index.js";
 
-export const handler = secured({ script: "body" }, async (event) => {
+export const handler = secured({ script: "body", heavy: true }, async (event) => {
   try {
     const parsed = NarrateRequestSchema.parse(JSON.parse(event.body ?? "{}"));
     const locked = await getLockedScript(parsed.script_id);

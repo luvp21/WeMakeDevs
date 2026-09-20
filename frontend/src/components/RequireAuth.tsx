@@ -6,5 +6,5 @@ import { useAuth } from "@/lib/auth";
 export function RequireAuth() {
   const { session, checking } = useAuth();
   if (checking) return <Skeleton className="m-8 h-40" />;
-  return session ? <Outlet /> : <Navigate to="/" replace />;
+  return session ? <Outlet /> : <Navigate to="/sign-in" replace />;
 }

@@ -7,6 +7,9 @@ import {
   SCRIPT_LANGUAGE_LIST,
   SCRIPT_LANGUAGES,
   DEFAULT_SCRIPT_LANGUAGE,
+  hasLimits,
+  MAX_VIDEO_MINUTES,
+  wordBudget,
   countWords,
   estimateSeconds,
   formatDuration,
@@ -26,6 +29,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/lib/auth";
 
 export type GeneratePhase = "ingest" | "plan" | "write";
 export interface GenerateStatus {
@@ -74,8 +78,14 @@ export function RepoForm({ onSubmit, status }: RepoFormProps) {
   const [format, setFormat] = useState<VideoFormatId>("hackathon_demo");
   const [minutes, setMinutes] = useState<number>(VIDEO_FORMATS.hackathon_demo.defaultMinutes);
   const [sourceScript, setSourceScript] = useState("");
+  const { session } = useAuth();
+  // Everyone except the judge and the team accounts makes one video of at most 3 minutes (also enforced on the server).
+  const limited = session ? hasLimits(session.role) : true;
+  const lengthOptions = TARGET_MINUTES_OPTIONS.filter((m) => !limited || m <= MAX_VIDEO_MINUTES);
+  const maxWords = Math.round(wordBudget(MAX_VIDEO_MINUTES) * 1.1);
   const scriptWords = countWords(sourceScript);
   const hasOwnScript = scriptWords > 0;
+  const scriptTooLong = limited && scriptWords > maxWords;
   const busy = status !== null;
 
   function handleSubmit(e: React.FormEvent) {
@@ -210,7 +220,7 @@ export function RepoForm({ onSubmit, status }: RepoFormProps) {
               aria-labelledby="length-label"
             >
               <TabsList className={hasOwnScript ? "opacity-50" : undefined}>
-                {TARGET_MINUTES_OPTIONS.map((m) => (
+                {lengthOptions.map((m) => (
                   <TabsTrigger key={m} value={String(m)} disabled={hasOwnScript || busy} className="tabular">
                     {minutesLabel(m)}
                   </TabsTrigger>
@@ -220,7 +230,9 @@ export function RepoForm({ onSubmit, status }: RepoFormProps) {
             <p className="text-xs text-muted-foreground">
               {hasOwnScript
                 ? "Your own script sets the length, so this is off."
-                : "Vaani writes to fit: about 135 spoken words per minute."}
+                : limited
+                  ? `Vaani writes to fit: about 135 spoken words per minute. Videos are limited to ${MAX_VIDEO_MINUTES} minutes.`
+                  : "Vaani writes to fit: about 135 spoken words per minute."}
             </p>
           </div>
 
@@ -235,14 +247,15 @@ export function RepoForm({ onSubmit, status }: RepoFormProps) {
               rows={5}
             />
             {hasOwnScript && (
-              <p className="text-xs text-muted-foreground tabular">
+              <p className={cn("text-xs tabular", scriptTooLong ? "text-destructive" : "text-muted-foreground")}>
                 {scriptWords} words, about {formatDuration(estimateSeconds(sourceScript))} spoken.
+                {scriptTooLong && ` That's over the ${MAX_VIDEO_MINUTES} minute limit, so please shorten it.`}
               </p>
             )}
           </div>
 
           <div className="flex justify-end">
-            <Button type="submit" size="lg" disabled={busy || !repoUrl.trim()}>
+            <Button type="submit" size="lg" disabled={busy || !repoUrl.trim() || scriptTooLong}>
               Draft the script
               <ArrowRight data-icon="inline-end" />
             </Button>

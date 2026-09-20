@@ -13,6 +13,8 @@ import {
   ScriptPlanResponseSchema,
   ApiErrorSchema,
   LoginResponseSchema,
+  RefreshResponseSchema,
+  AuthConfigSchema,
   SessionSchema,
   type IngestResult,
   type Script,
@@ -26,6 +28,9 @@ import {
   type ProjectDetail,
   type VideoFormatId,
   type LoginResponse,
+  type RefreshResponse,
+  type AuthRole,
+  type AuthConfig,
   type Session,
   type ScriptLanguage,
   type SceneGenResponse,
@@ -43,6 +48,25 @@ export function setToken(next: string | null): void {
 // return to the sign-in page from wherever it is.
 export const UNAUTHORIZED_EVENT = "vaani:unauthorized";
 
+// Set by AuthProvider: gets a new ID token from the refresh token (they last an
+// hour), or null if the sign-in can't be renewed.
+let refreshHandler: (() => Promise<string | null>) | null = null;
+export function setRefreshHandler(handler: (() => Promise<string | null>) | null): void {
+  refreshHandler = handler;
+}
+
+const AUTH_PATHS_WITHOUT_RETRY = new Set(["/auth/login", "/auth/judge-link", "/auth/refresh"]);
+
+// One request, and if the server says the token has expired, one retry with a
+// renewed token. Only a failed renewal signs the person out.
+async function send(path: string, init: RequestInit): Promise<Response> {
+  const res = await fetch(`/api${path}`, { ...init, headers: { ...init.headers, ...authHeaders() } });
+  if (res.status !== 401 || !refreshHandler || AUTH_PATHS_WITHOUT_RETRY.has(path)) return res;
+  const fresh = await refreshHandler();
+  if (!fresh) return res;
+  return fetch(`/api${path}`, { ...init, headers: { ...init.headers, authorization: `Bearer ${fresh}` } });
+}
+
 function authHeaders(): Record<string, string> {
   return token ? { authorization: `Bearer ${token}` } : {};
 }
@@ -54,9 +78,9 @@ async function failFrom(res: Response, json: unknown, path: string): Promise<nev
 }
 
 async function postJson<T>(path: string, body: unknown, schema: z.ZodType<T, z.ZodTypeDef, unknown>): Promise<T> {
-  const res = await fetch(`/api${path}`, {
+  const res = await send(path, {
     method: "POST",
-    headers: { "content-type": "application/json", ...authHeaders() },
+    headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
   const json: unknown = await res.json();
@@ -65,7 +89,7 @@ async function postJson<T>(path: string, body: unknown, schema: z.ZodType<T, z.Z
 }
 
 async function getJson<T>(path: string, schema: z.ZodType<T, z.ZodTypeDef, unknown>): Promise<T> {
-  const res = await fetch(`/api${path}`, { headers: authHeaders() });
+  const res = await send(path, {});
   const json: unknown = await res.json();
   if (!res.ok) return failFrom(res, json, path);
   return schema.parse(json);
@@ -231,4 +255,19 @@ export function me(): Promise<Session> {
 // Opening the private judge link exchanges its key for a judge session.
 export function judgeLink(key: string): Promise<LoginResponse> {
   return postJson("/auth/judge-link", { key }, LoginResponseSchema);
+}
+
+// A new ID token without signing in again.
+export function refreshSession(refreshToken: string, role: AuthRole): Promise<RefreshResponse> {
+  return postJson("/auth/refresh", { refresh_token: refreshToken, role }, RefreshResponseSchema);
+}
+
+// Whether "Continue with Google" is switched on, and where it starts.
+export function authConfig(): Promise<AuthConfig> {
+  return getJson("/auth/config", AuthConfigSchema);
+}
+
+// The second half of "Continue with Google": swap the code Google's page came back with for a session.
+export function googleSignIn(code: string, codeVerifier: string, redirectUri: string): Promise<LoginResponse> {
+  return postJson("/auth/google", { code, code_verifier: codeVerifier, redirect_uri: redirectUri }, LoginResponseSchema);
 }

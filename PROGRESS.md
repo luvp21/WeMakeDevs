@@ -1086,6 +1086,92 @@ Notes:
   Suite 72. Left out on purpose: Cognito (would replace the sign-in just built; decision pending),
   SageMaker/Bedrock (not available here), CloudFront (blocked).
 
+- **Cognito replaced the hand-built sign-in (Sept 20).** Committed the previous working state first
+  as a rollback point (`aefd4de`). User pool with admin-created users only, groups `tester` and
+  `judge`, two app clients (tester refresh 1 day, judge 30 days). Judge link design, decided after
+  weighing three options: our Lambda checks the link key (an HMAC of `AUTH_SECRET`, unchanged, so the
+  link itself did not change) BEFORE Cognito is asked, then gives the `judge` user a fresh random
+  password and signs in with it, so nothing is stored and wrong keys can never trigger Cognito's
+  lockout (rejected: putting the password in the link, which lets anyone lock the judge out; and a
+  custom-auth challenge, which is more moving parts). Password sign-in refuses the `judge`
+  username for the same reason. API: `aws-jwt-verify` on every route (signature, issuer, audience,
+  expiry, ID token, group), refresh via `POST /api/auth/refresh`; the frontend renews the ID token
+  quietly on a 401 and retries once. Removed the custom token and account code, `AUTH_ACCOUNTS`
+  and the `/judge` password page. Tested with real RS256-signed tokens (expired, forged group,
+  wrong key, wrong pool, wrong client, access token, no group all rejected) and live: wrong
+  password 401, `judge` username 401, forged and re-signed tokens 401, judge link 200, refresh 200,
+  bad refresh 401, judge still signs in after many wrong attempts. Browser on the live site:
+  tester sign-in, silent refresh after a corrupted token (stayed signed in), judge link ->
+  landing page + all projects. **Found**: an early "tampered token" test passed only because the
+  last base64 character of a signature carries unused bits; re-tested by altering the middle of
+  the signature and the payload. Suite 71. Cognito creation was allowed on this account.
+  There is no sign-up path, by design (see README); `provision-users.mjs` can make more testers.
+
+- **Rate limits and the 3 minute rule (Sept 20).** Requested by the user: every account except the
+  judge makes ONE video of at most 3 minutes, plus a rate limit for all users. Length is enforced on
+  the server at drafting (target clamped to 3, pasted script over ~3:18 refused), locking (edited
+  script over ~3:18 refused) and rendering (recorded speech over 3:45, from the new
+  `duration_ms` in the sync result), via a route `check` that runs BEFORE quota is spent, so a
+  refusal costs nothing. Rate limits: per account per minute in DynamoDB (`rate#` keys, TTL),
+  30 heavy / 120 normal (judge x5), 10 a minute per IP on sign-in, and a shared 40 renders a day
+  cap; fails open. Live: 40 heavy calls -> exactly 30 x 200 then 10 x 429 with "wait 49 seconds";
+  ordinary calls unaffected; fresh allowance the next minute; a 600 word pasted script -> 400
+  (usage unchanged); a 700 word lock -> 400 (usage unchanged); a 5 minute request came back planned
+  as 6 scenes / 405 words = 3.0 minutes. Suite 84. **Found**: this account's Lambda concurrency is
+  10 (a first test with 45 simultaneous calls gave 10 x 200 and 35 x 503, which looked like a rate
+  limiter bug and wasn't). The Service Quotas API refuses to raise it (applied value below the
+  default); needs an AWS Support case. Practical effect: about three people drafting scripts at the
+  same time is the ceiling. Not live-tested: the render-time length check against a real
+  over-length recording (unit tested only).
+
+- **Google sign-in built, switched off until credentials exist (Sept 20).** Requested by the user;
+  it turns "each user makes one video" into per-Google-account allowances. Via Cognito's hosted page
+  (code flow + PKCE + `state`), our `POST /api/auth/google` exchanges the code, only this site's
+  callback and localhost are accepted as redirect. A Google user has no group, so a federated
+  identity makes them role `member` (same one-video / 3 minute limits, own DynamoDB row, refund on a
+  failed render now applies to every non-judge role). New template resources are conditional on
+  `GoogleClientId` + `GoogleClientSecret` (domain, identity provider, web client); the sign-in page
+  asks `GET /api/auth/config` and shows "Continue with Google" only when it is on. Locked scripts
+  and projects now carry `owner_name` (a Google username is an opaque id) for the judge's dashboard.
+  Tested: member role, group beats federation, forged/no-group tokens, allowed redirects, config
+  on/off (87 tests); deployed with Google off and regression-tested live (tester login, judge
+  link, `/auth/google` with a bad redirect -> 400). **Not yet tested end to end**: needs Google
+  credentials created by the user in Google Cloud Console and a real Google sign-in in a browser.
+
+- **Team account and a public landing page (Sept 20).** `tester3` was created for the user, then made
+  unlimited for our own testing. Rather than make it a judge (a password that sees every user's
+  projects), added a fourth role, `team` (Cognito group `team`): no allowance, no 3 minute cap, no
+  daily render cap, five times the rate limit, own projects only. The rule "limited unless judge"
+  had been repeated in eight places, so it is now one function, `hasLimits(role)`, used by the quota,
+  length, rate, refund and UI code. Live: 5 locks of a 6:40 script (a tester gets 3 locks and
+  3:18), a 900 word pasted script accepted, usage never counted, sees only its own projects, 404
+  on the judge's project; browser shows "Team account, no limits" and the 5 minute option.
+  Also requested: the landing page is now public. `/` is the landing page for everyone, sign-in
+  moved to `/sign-in`, `/app/*` and every API call except sign-in still need an account (verified
+  signed out in a real browser: landing visible, `/app` and `/app/studio` redirect to
+  `/sign-in`, `/api/projects` is 401). The landing header shows "Sign in / Try Vaani" when signed
+  out and "Dashboard / Make a video" when signed in; "Back to site" is in every account's sidebar.
+  `provision-users.mjs` gained `--add tester4` and `--team tester4`. Suite 94.
+
+- **Google sign-in switched on (Sept 20).** The user created the OAuth client (Web application) and put
+  the id and secret in `backend/.env`; deployed with them (redaction filter; only the client id, which
+  is public, appeared in the log). Created: Cognito domain `vaani-979973571368`, the Google identity
+  provider, and the `web` app client (callbacks: live site and `http://localhost:5173`). Verified
+  without a real login: `/api/auth/config` reports Google on; Cognito answers the authorize request
+  for BOTH the live and the localhost callback with a 302 to accounts.google.com; an unregistered
+  callback is refused (`redirect_mismatch`); Google itself accepts the client and redirect (a 302
+  to its sign-in page, no `redirect_uri_mismatch` or `invalid_client`); the live sign-in page shows
+  "Continue with Google" and clicking it sends the browser to Cognito with the PKCE challenge,
+  state, client and callback all correct. **Not verified**: completing a real Google login and the
+  code exchange (`POST /api/auth/google`), which needs a real Google account. **Gotcha found**: a
+  brand-new Cognito domain returned NXDOMAIN to the first lookups (before its DNS existed), and the
+  zone's SOA negative-cache TTL is 86400 seconds, so any resolver that asked in that first minute
+  (here: the user's home router, 192.168.29.1) keeps saying "doesn't exist" for up to 24 hours,
+  while Google's 8.8.8.8 resolves it. It affects only networks that queried early. Workarounds:
+  Chrome "Use secure DNS" with Google, another network (phone hotspot), or a temporary
+  `/etc/hosts` line. Lesson: don't probe a brand-new Cognito domain from the machine that will
+  use it until it has resolved elsewhere.
+
 ## Sunday, Sept 20
 
 - [ ] Sync algorithm wired to a real recorded scene

@@ -1,6 +1,6 @@
 import { ConditionalCheckFailedException, DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, GetCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
-import { TESTER_LIMITS, type AuthRole, type Limits, type Usage } from "@vaani/shared";
+import { hasLimits, TESTER_LIMITS, type AuthRole, type Limits, type Usage } from "@vaani/shared";
 
 export type QuotaKind = keyof Usage;
 
@@ -109,7 +109,7 @@ export async function getUsage(username: string, using: UsageStore = defaultStor
   return using.read(username);
 }
 
-// Judges have no limits, so their calls never touch the table.
+// The judge and team accounts have no limits, so their calls never touch the table.
 export async function consume(
   username: string,
   role: AuthRole,
@@ -117,7 +117,7 @@ export async function consume(
   using: UsageStore = defaultStore(),
   limits: Limits = TESTER_LIMITS,
 ): Promise<{ ok: true } | { ok: false; message: string }> {
-  if (role === "judge") return { ok: true };
+  if (!hasLimits(role)) return { ok: true };
   return (await using.increment(username, kind, limits[kind])) ? { ok: true } : { ok: false, message: MESSAGES[kind] };
 }
 
@@ -127,6 +127,6 @@ export async function refund(
   kind: QuotaKind,
   using: UsageStore = defaultStore(),
 ): Promise<void> {
-  if (role === "judge") return;
+  if (!hasLimits(role)) return;
   await using.decrement(username, kind);
 }

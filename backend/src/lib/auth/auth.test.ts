@@ -1,63 +1,158 @@
 import { test, before } from "node:test";
 import assert from "node:assert/strict";
-import { signToken, verifyToken } from "./token.js";
-import { checkLogin, encodeAccounts, hashPassword, loadAccounts, makeAccount } from "./accounts.js";
+import { generateKeyPairSync, sign } from "node:crypto";
 import { consume, memoryStore, refund, getUsage } from "./quota.js";
 import { checkJudgeLinkKey, judgeLinkKey } from "./judgeLink.js";
 import { authenticate, canAccess, HttpError, requireJudge } from "./access.js";
+import { createVerifier, sessionExpiry, verifyIdToken } from "./verify.js";
+import { hasLimits } from "@vaani/shared";
+import { assertAllowedRedirect, assertPasswordLoginAllowed } from "./cognito.js";
+import { authConfig } from "../../handlers/auth.js";
+
+const POOL = "us-east-1_TESTPOOL";
+const TESTER_CLIENT = "testerclient123";
+const JUDGE_CLIENT = "judgeclient456";
+const ISSUER = `https://cognito-idp.us-east-1.amazonaws.com/${POOL}`;
 
 before(() => {
   process.env.AUTH_SECRET = "test-secret-that-is-long-enough-for-hmac-signing";
+  process.env.USER_POOL_ID = POOL;
+  process.env.TESTER_CLIENT_ID = TESTER_CLIENT;
+  process.env.JUDGE_CLIENT_ID = JUDGE_CLIENT;
 });
 
-const NOW = Date.parse("2026-09-20T10:00:00Z");
-const soon = Math.floor(NOW / 1000) + 3600;
-const payload = { sub: "tester1", role: "tester" as const, name: "Tester 1", exp: soon };
+// A real RS256 key pair standing in for the pool's published signing keys.
+const { publicKey, privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+const otherKey = generateKeyPairSync("rsa", { modulusLength: 2048 }).privateKey;
+const jwk = { ...publicKey.export({ format: "jwk" }), kid: "test-key", alg: "RS256", use: "sig" };
 
-test("a token signed by us verifies and returns who it is for", () => {
-  assert.deepEqual(verifyToken(signToken(payload), NOW), payload);
+function verifier() {
+  const v = createVerifier({ userPoolId: POOL, clientIds: [TESTER_CLIENT, JUDGE_CLIENT] });
+  v.cacheJwks({ keys: [jwk] } as never);
+  return v;
+}
+
+const inAnHour = Math.floor(Date.now() / 1000) + 3600;
+
+function idToken(claims: Record<string, unknown> = {}, key = privateKey): string {
+  const encode = (o: object) => Buffer.from(JSON.stringify(o)).toString("base64url");
+  const header = encode({ alg: "RS256", kid: "test-key", typ: "JWT" });
+  const body = encode({
+    iss: ISSUER,
+    aud: TESTER_CLIENT,
+    token_use: "id",
+    sub: "abc-123",
+    "cognito:username": "tester1",
+    "cognito:groups": ["tester"],
+    name: "Tester 1",
+    iat: Math.floor(Date.now() / 1000),
+    exp: inAnHour,
+    ...claims,
+  });
+  return `${header}.${body}.${sign("RSA-SHA256", Buffer.from(`${header}.${body}`), key).toString("base64url")}`;
+}
+
+test("a genuine Cognito ID token verifies into who is calling, with the role from the group", async () => {
+  assert.deepEqual(await verifyIdToken(idToken(), verifier()), { username: "tester1", role: "tester", name: "Tester 1" });
+  const judge = await verifyIdToken(
+    idToken({ aud: JUDGE_CLIENT, "cognito:username": "judge", "cognito:groups": ["judge"], name: "Judge" }),
+    verifier(),
+  );
+  assert.deepEqual(judge, { username: "judge", role: "judge", name: "Judge" });
 });
 
-test("an expired token, a tampered token and garbage are all rejected", () => {
-  assert.equal(verifyToken(signToken({ ...payload, exp: Math.floor(NOW / 1000) - 1 }), NOW), null);
-  const [body, sig] = signToken(payload).split(".");
-  const forged = Buffer.from(JSON.stringify({ ...payload, role: "judge" })).toString("base64url");
-  assert.equal(verifyToken(`${forged}.${sig}`, NOW), null, "changing the role must break the signature");
-  assert.equal(verifyToken(`${body}.AAAA`, NOW), null);
-  for (const junk of ["", "abc", "a.b.c", "."]) assert.equal(verifyToken(junk, NOW), null);
+test("tokens that are expired, forged, for another pool or client, or not ID tokens are all rejected", async () => {
+  const v = verifier();
+  assert.equal(await verifyIdToken(idToken({ exp: Math.floor(Date.now() / 1000) - 60 }), v), null, "expired");
+  assert.equal(await verifyIdToken(idToken({}, otherKey), v), null, "signed with a different key");
+  assert.equal(await verifyIdToken(idToken({ iss: "https://cognito-idp.us-east-1.amazonaws.com/us-east-1_OTHER" }), v), null, "another pool");
+  assert.equal(await verifyIdToken(idToken({ aud: "someotherclient" }), v), null, "another app client");
+  assert.equal(await verifyIdToken(idToken({ token_use: "access" }), v), null, "an access token is not accepted as an ID token");
+  const [h, , sig] = idToken().split(".");
+  const forged = Buffer.from(JSON.stringify({ iss: ISSUER, aud: TESTER_CLIENT, token_use: "id", "cognito:username": "tester1", "cognito:groups": ["judge"], exp: inAnHour })).toString("base64url");
+  assert.equal(await verifyIdToken(`${h}.${forged}.${sig}`, v), null, "changing the group must break the signature");
+  for (const junk of ["", "abc", "a.b.c", "."]) assert.equal(await verifyIdToken(junk, v), null, junk);
 });
 
-test("a token signed with a different secret is rejected", () => {
-  const token = signToken(payload);
-  process.env.AUTH_SECRET = "a-completely-different-secret-of-sufficient-length";
-  assert.equal(verifyToken(token, NOW), null);
-  process.env.AUTH_SECRET = "test-secret-that-is-long-enough-for-hmac-signing";
+test("a user in neither group gets no access, even with a valid token", async () => {
+  assert.equal(await verifyIdToken(idToken({ "cognito:groups": [] }), verifier()), null);
+  assert.equal(await verifyIdToken(idToken({ "cognito:groups": undefined }), verifier()), null);
+  assert.equal(await verifyIdToken(idToken({ "cognito:groups": ["somebody-else"] }), verifier()), null);
 });
 
-test("a short or missing secret is refused rather than used", () => {
-  process.env.AUTH_SECRET = "short";
-  assert.throws(() => signToken(payload), /at least 32/);
-  process.env.AUTH_SECRET = "test-secret-that-is-long-enough-for-hmac-signing";
+test("someone who signed in with Google (no group, a federated identity) is a member", async () => {
+  const google = idToken({ "cognito:username": "Google_1234567890", "cognito:groups": undefined, identities: [{ providerName: "Google", userId: "1234567890" }], name: "Ada Lovelace" });
+  assert.deepEqual(await verifyIdToken(google, verifier()), { username: "Google_1234567890", role: "member", name: "Ada Lovelace" });
+  assert.equal(await verifyIdToken(idToken({ "cognito:groups": undefined, identities: [] }), verifier()), null, "no group and not federated: no access");
+  assert.equal((await verifyIdToken(idToken({ identities: [{ providerName: "Google" }], "cognito:groups": ["judge"] }), verifier()))?.role, "judge", "a group wins over being federated");
 });
 
-const accounts = [
-  makeAccount("tester1", "tester", "Tester 1", "correct horse"),
-  makeAccount("judge", "judge", "Judge", "another secret"),
-];
-
-test("login works with the right password, case-insensitive username, and fails otherwise", () => {
-  assert.equal(checkLogin("tester1", "correct horse", accounts)?.role, "tester");
-  assert.equal(checkLogin("  Judge ", "another secret", accounts)?.role, "judge");
-  assert.equal(checkLogin("tester1", "wrong", accounts), null);
-  assert.equal(checkLogin("nobody", "correct horse", accounts), null);
-  assert.equal(checkLogin("tester1", "another secret", accounts), null, "one account's password must not open another");
+test("Google sign-in may only come back to this site's callback page (or the local dev one)", () => {
+  const site = "https://example.execute-api.us-east-1.amazonaws.com";
+  assert.doesNotThrow(() => assertAllowedRedirect(`${site}/auth/callback`, site));
+  assert.doesNotThrow(() => assertAllowedRedirect("http://localhost:5173/auth/callback", site));
+  for (const bad of ["https://evil.example/auth/callback", `${site}/somewhere-else`, `${site}/auth/callback?x=1`, ""]) {
+    assert.throws(() => assertAllowedRedirect(bad, site), (e: unknown) => e instanceof HttpError && e.status === 400, bad);
+  }
 });
 
-test("only a salted hash is stored, never the password", () => {
-  const account = accounts[0];
-  assert.ok(!JSON.stringify(account).includes("correct horse"));
-  assert.equal(account.hash, hashPassword("correct horse", account.salt));
-  assert.notEqual(makeAccount("a", "tester", "A", "same").hash, makeAccount("b", "tester", "B", "same").hash);
+test("Google sign-in is reported as off until it has a domain and a client", () => {
+  const saved = { d: process.env.COGNITO_DOMAIN, c: process.env.WEB_CLIENT_ID };
+  delete process.env.COGNITO_DOMAIN;
+  delete process.env.WEB_CLIENT_ID;
+  assert.deepEqual(authConfig(), { google: null });
+  process.env.COGNITO_DOMAIN = "vaani-1.auth.us-east-1.amazoncognito.com";
+  process.env.WEB_CLIENT_ID = "webclient";
+  assert.deepEqual(authConfig(), { google: { authorize_url: "https://vaani-1.auth.us-east-1.amazoncognito.com/oauth2/authorize", client_id: "webclient" } });
+  if (saved.d) process.env.COGNITO_DOMAIN = saved.d; else delete process.env.COGNITO_DOMAIN;
+  if (saved.c) process.env.WEB_CLIENT_ID = saved.c; else delete process.env.WEB_CLIENT_ID;
+});
+
+test("a team account is its own role: unlimited like the judge, but not the judge", async () => {
+  const team = await verifyIdToken(idToken({ "cognito:username": "tester3", "cognito:groups": ["team"], name: "Tester 3" }), verifier());
+  assert.deepEqual(team, { username: "tester3", role: "team", name: "Tester 3" });
+  assert.equal((await verifyIdToken(idToken({ "cognito:groups": ["team", "tester"] }), verifier()))?.role, "team", "team beats tester");
+  assert.equal((await verifyIdToken(idToken({ "cognito:groups": ["judge", "team"] }), verifier()))?.role, "judge", "judge beats team");
+});
+
+test("which roles have limits: testers and members do, team and judge don't", () => {
+  assert.deepEqual((["tester", "member", "team", "judge"] as const).map(hasLimits), [true, true, false, false]);
+  assert.equal(hasLimits(null), false, "no account (an IP address for sign-in) has no allowance to apply");
+});
+
+test("a team account is never counted against an allowance, and never blocked by one", async () => {
+  const store = memoryStore();
+  for (let i = 0; i < 20; i++) assert.equal((await consume("tester3", "team", "renders", store)).ok, true);
+  assert.deepEqual(await getUsage("tester3", store), { drafts: 0, locks: 0, renders: 0 });
+});
+
+test("a team account sees only its own projects (not the judge's view)", () => {
+  const team = { username: "tester3", role: "team" as const, name: "T" };
+  assert.equal(canAccess(team, "tester3"), true);
+  assert.equal(canAccess(team, "tester1"), false);
+  assert.equal(canAccess(team, undefined), false);
+  assert.throws(() => requireJudge(team), (e: unknown) => e instanceof HttpError && e.status === 403);
+});
+
+test("a name is optional: the username is used when the token has none", async () => {
+  assert.equal((await verifyIdToken(idToken({ name: undefined }), verifier()))?.name, "tester1");
+});
+
+test("the session's expiry is read from the token", () => {
+  assert.equal(sessionExpiry(idToken({ exp: 1789900000 })), new Date(1789900000 * 1000).toISOString());
+});
+
+test("the judge account can't be used for password sign-in, so guessing can never lock the judge out", () => {
+  for (const name of ["judge", "Judge", "  JUDGE "]) {
+    assert.throws(() => assertPasswordLoginAllowed(name), (e: unknown) => e instanceof HttpError && e.status === 401, name);
+  }
+  assert.doesNotThrow(() => assertPasswordLoginAllowed("tester1"));
+});
+
+test("authenticate needs a valid Bearer token", async () => {
+  for (const bad of [undefined, "", "Bearer", "Token abc", "Bearer nonsense"]) {
+    await assert.rejects(() => authenticate(bad), (e: unknown) => e instanceof HttpError && e.status === 401, String(bad));
+  }
 });
 
 test("a tester gets exactly one render, and a refund gives it back", async () => {
@@ -92,14 +187,6 @@ test("a refund never goes below zero", async () => {
   assert.equal((await getUsage("tester1", store)).drafts, 0);
 });
 
-test("authenticate needs a valid Bearer token", () => {
-  const token = signToken({ ...payload, exp: Math.floor(Date.now() / 1000) + 3600 });
-  assert.equal(authenticate(`Bearer ${token}`).username, "tester1");
-  for (const bad of [undefined, "", "Bearer", `Token ${token}`, "Bearer nonsense"]) {
-    assert.throws(() => authenticate(bad), (e: unknown) => e instanceof HttpError && e.status === 401);
-  }
-});
-
 test("a tester can only reach their own projects; the judge reaches all, including ownerless ones", () => {
   const tester = { username: "tester1", role: "tester" as const, name: "T" };
   const judge = { username: "judge", role: "judge" as const, name: "J" };
@@ -110,14 +197,6 @@ test("a tester can only reach their own projects; the judge reaches all, includi
   assert.equal(canAccess(judge, undefined), true);
   assert.throws(() => requireJudge(tester), (e: unknown) => e instanceof HttpError && e.status === 403);
   assert.doesNotThrow(() => requireJudge(judge));
-});
-
-test("accounts load from base64 (the deployed form) and from plain JSON", () => {
-  const list = [makeAccount("tester1", "tester", "Tester 1", "pw-one")];
-  assert.deepEqual(loadAccounts(encodeAccounts(list)), list);
-  assert.deepEqual(loadAccounts(JSON.stringify(list)), list);
-  assert.throws(() => loadAccounts(""), /not set/);
-  assert.throws(() => loadAccounts("not json or base64 json"));
 });
 
 test("the judge link key is long, stable, and only the exact key opens it", () => {

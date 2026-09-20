@@ -139,6 +139,9 @@ export type Checkpoint = z.infer<typeof CheckpointSchema>;
 export const SceneCheckpointsSchema = z.object({
   scene_id: z.string(),
   checkpoints: z.array(CheckpointSchema),
+  // Where the last spoken word ends, so a video's real length is known without
+  // decoding the recording.
+  duration_ms: z.number().optional(),
 });
 export type SceneCheckpoints = z.infer<typeof SceneCheckpointsSchema>;
 
@@ -285,6 +288,8 @@ export const LockedScriptSchema = z.object({
   // Username of the account that locked it. Older projects have none, so only
   // the judge can see them.
   owner: z.string().optional(),
+  // The owner's display name, for the judge's dashboard (a Google account's username is an opaque id).
+  owner_name: z.string().optional(),
 });
 export type LockedScript = z.infer<typeof LockedScriptSchema>;
 
@@ -403,6 +408,7 @@ export const ProjectSummarySchema = z.object({
   locked_at: z.string(),
   // Who made it. Shown to the judge, who sees every account's projects.
   owner: z.string().optional(),
+  owner_name: z.string().optional(),
 });
 export type ProjectSummary = z.infer<typeof ProjectSummarySchema>;
 

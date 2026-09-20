@@ -25,7 +25,7 @@ export async function computeSync(locked: LockedScript): Promise<SyncResult> {
     }
     const transliterated = transliterateTranscript(status.words ?? []);
     const checkpoints = syncScene(scene, transliterated);
-    scenes.push({ scene_id: scene.id, checkpoints });
+    scenes.push({ scene_id: scene.id, checkpoints, duration_ms: transliterated.at(-1)?.end_ms });
   }
 
   const result: SyncResult = { script_id: locked.script_id, scenes };

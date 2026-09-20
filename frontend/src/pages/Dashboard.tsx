@@ -189,7 +189,7 @@ export default function Dashboard() {
                       </div>
                     </TableCell>
                     {isJudge && (
-                      <TableCell className="text-muted-foreground">{project.owner ?? "Before accounts"}</TableCell>
+                      <TableCell className="text-muted-foreground">{project.owner_name ?? project.owner ?? "Before accounts"}</TableCell>
                     )}
                     <TableCell>
                       <StageBadge stage={project.stage} />

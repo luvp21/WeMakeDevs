@@ -3,7 +3,7 @@ import { SceneGenRequestSchema } from "@vaani/shared";
 import { ZodError } from "zod";
 import { generateScene } from "../lib/scriptGen.js";
 
-export const handler = secured({}, async (event) => {
+export const handler = secured({ heavy: true }, async (event) => {
   try {
     const parsed = SceneGenRequestSchema.parse(JSON.parse(event.body ?? "{}"));
     const result = await generateScene({

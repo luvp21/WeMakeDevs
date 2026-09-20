@@ -47,6 +47,7 @@ function summarize(
     stage: deriveStage(recordedSceneIds.length, synced, renderStatus),
     locked_at: locked.locked_at,
     ...(locked.owner ? { owner: locked.owner } : {}),
+    ...(locked.owner_name ? { owner_name: locked.owner_name } : {}),
   };
 }
 

@@ -1,4 +1,4 @@
-import type { AuthRole, RenderStatus } from "@vaani/shared";
+import { hasLimits, type AuthRole, type RenderStatus } from "@vaani/shared";
 
 // What the render workflow (Step Functions) hands over when the Fargate task
 // fails or times out. `error` is Step Functions' own description of why.
@@ -32,7 +32,8 @@ export async function handleRenderFailure(
   // Finished after all (the worker won a race with the workflow): nothing to undo.
   if (current.status === "done") return { refunded: false };
 
-  const refunded = Boolean(input.owner) && input.role === "tester";
+  // Only accounts with a one-video allowance have one to give back.
+  const refunded = Boolean(input.owner) && hasLimits(input.role ?? null);
   const base = current.status === "error" && current.error ? current.error : STOPPED_MESSAGE;
   // A tester is told their video wasn't used up, since that is what they wonder next.
   const sentence = /[.!?]$/.test(base) ? base : `${base}.`;

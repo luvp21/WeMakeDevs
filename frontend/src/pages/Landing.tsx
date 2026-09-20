@@ -1,5 +1,6 @@
 import { motion, useReducedMotion } from "motion/react";
 import { Link } from "react-router";
+import { useAuth } from "@/lib/auth";
 import { ArrowRight, Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
@@ -90,6 +91,7 @@ function HighlightedLine({ text }: { text: string }) {
 }
 
 function Nav() {
+  const { session } = useAuth();
   return (
     <header className="sticky top-0 z-30 border-b bg-background/80 backdrop-blur">
       <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4 sm:px-6">
@@ -108,12 +110,25 @@ function Nav() {
           ))}
         </nav>
         <div className="flex items-center gap-2">
-          <Button render={<Link to="/app" />} variant="ghost" size="sm" className="hidden sm:inline-flex">
-            Dashboard
-          </Button>
-          <Button render={<Link to="/app/studio" />} size="sm">
-            Make a video
-          </Button>
+          {session ? (
+            <>
+              <Button render={<Link to="/app" />} variant="ghost" size="sm" className="hidden sm:inline-flex">
+                Dashboard
+              </Button>
+              <Button render={<Link to="/app/studio" />} size="sm">
+                Make a video
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button render={<Link to="/sign-in" />} variant="ghost" size="sm" className="hidden sm:inline-flex">
+                Sign in
+              </Button>
+              <Button render={<Link to="/sign-in" />} size="sm">
+                Try Vaani
+              </Button>
+            </>
+          )}
           <Sheet>
             <SheetTrigger render={<Button variant="ghost" size="icon" className="md:hidden" aria-label="Menu" />}>
               <Menu />
@@ -128,8 +143,10 @@ function Nav() {
                     {link.label}
                   </SheetClose>
                 ))}
-                <SheetClose render={<Link to="/app" className="rounded-md px-3 py-2.5 text-base hover:bg-accent" />}>
-                  Dashboard
+                <SheetClose
+                  render={<Link to={session ? "/app" : "/sign-in"} className="rounded-md px-3 py-2.5 text-base hover:bg-accent" />}
+                >
+                  {session ? "Dashboard" : "Sign in"}
                 </SheetClose>
               </div>
             </SheetContent>

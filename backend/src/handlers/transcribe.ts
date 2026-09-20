@@ -24,7 +24,7 @@ function isBackgroundJob(event: unknown): event is BackgroundJob {
 // app already polls the status endpoint. When the worker fails it stores the
 // failure there, so a bad transcription shows up instead of spinning forever.
 // The API call, once secure.ts has checked who is calling and that the project is theirs.
-const startFromApi = secured({ script: "body" }, async (event) => {
+const startFromApi = secured({ script: "body", heavy: true }, async (event) => {
   try {
     const parsed = TranscribeRequestSchema.parse(JSON.parse(event.body ?? "{}"));
     await markTranscriptionStarted(parsed.script_id, parsed.scene_id);

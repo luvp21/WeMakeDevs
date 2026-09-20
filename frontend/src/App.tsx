@@ -2,9 +2,10 @@ import { lazy, Suspense } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router";
 import { AppShell } from "@/components/app/AppShell";
 import { Skeleton } from "@/components/ui/skeleton";
-import Home from "@/pages/Home";
+import Landing from "@/pages/Landing";
 import SignIn from "@/pages/SignIn";
 import JudgeLink from "@/pages/JudgeLink";
+import GoogleCallback from "@/pages/GoogleCallback";
 import { RequireAuth } from "@/components/RequireAuth";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import NotFound from "@/pages/NotFound";
@@ -23,10 +24,11 @@ function PageFallback() {
   );
 }
 
-// The private judge sign-in. Anyone already signed in as the judge has nothing to sign in to.
-function JudgeEntry() {
-  const { session } = useAuth();
-  return session?.role === "judge" ? <Navigate to="/" replace /> : <SignIn variant="judge" />;
+// The sign-in page; anyone already signed in has nothing to do here.
+function SignInRoute() {
+  const { session, checking } = useAuth();
+  if (checking) return <PageFallback />;
+  return session ? <Navigate to="/app/studio" replace /> : <SignIn />;
 }
 
 export default function App() {
@@ -34,9 +36,10 @@ export default function App() {
     <AuthProvider>
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<Home />} />
-        <Route path="/judge" element={<JudgeEntry />} />
+        <Route path="/" element={<Landing />} />
+        <Route path="/sign-in" element={<SignInRoute />} />
         <Route path="/j/:key" element={<JudgeLink />} />
+        <Route path="/auth/callback" element={<GoogleCallback />} />
         <Route element={<RequireAuth />}>
         <Route path="/app" element={<AppShell />}>
           <Route

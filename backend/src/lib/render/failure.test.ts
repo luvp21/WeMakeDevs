@@ -69,3 +69,11 @@ test("a very long failure cause is cut down so the alert stays readable", async 
   await handleRenderFailure(deps, { script_id: ID, owner: "judge", role: "judge", error: { Cause: "x".repeat(5000) } }, () => NOW);
   assert.ok(calls.alerts[0].message.length < 900);
 });
+
+test("a team account has no allowance, so a failed render gives nothing back", async () => {
+  const { deps, calls } = fakes(status("running"));
+  const result = await handleRenderFailure(deps, { script_id: ID, owner: "tester3", role: "team" }, () => NOW);
+  assert.equal(result.refunded, false);
+  assert.deepEqual(calls.refunds, []);
+  assert.equal(calls.set.length, 1, "the failure is still recorded");
+});

@@ -1,10 +1,11 @@
 import { secured } from "./secure.js";
+import { checkRecordingLength } from "../lib/auth/videoLimit.js";
 import { RenderRequestSchema, type RenderStatus } from "@vaani/shared";
 import { ZodError } from "zod";
 import { triggerRenderTask } from "../lib/render/trigger.js";
 import { setRenderStatus } from "../lib/render/status.js";
 
-export const handler = secured({ script: "body", quota: "renders" }, async (event, auth) => {
+export const handler = secured({ script: "body", quota: "renders", heavy: true, check: checkRecordingLength }, async (event, auth) => {
   try {
     const parsed = RenderRequestSchema.parse(JSON.parse(event.body ?? "{}"));
     const status: RenderStatus = {

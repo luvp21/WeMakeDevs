@@ -1,29 +1,19 @@
-import type { AuthRole } from "@vaani/shared";
+import { hasLimits } from "@vaani/shared";
 import { getLockedScript } from "../lockScript.js";
-import { verifyToken } from "./token.js";
+import { HttpError } from "./http.js";
+import { verifyIdToken, type Auth } from "./verify.js";
 import { consume, refund, type QuotaKind } from "./quota.js";
+import { enforceDailyRenderCap, enforceRate } from "./rateLimit.js";
 
-export class HttpError extends Error {
-  constructor(
-    readonly status: number,
-    message: string,
-  ) {
-    super(message);
-  }
-}
+export { HttpError };
+export type { Auth };
 
-export interface Auth {
-  username: string;
-  role: AuthRole;
-  name: string;
-}
-
-// Reads "Authorization: Bearer <token>". Anything else is a 401.
-export function authenticate(authorization: string | undefined): Auth {
+// Reads "Authorization: Bearer <Cognito ID token>" and verifies it. Anything else is a 401.
+export async function authenticate(authorization: string | undefined): Promise<Auth> {
   const token = /^Bearer (.+)$/i.exec(authorization ?? "")?.[1];
-  const payload = token ? verifyToken(token) : null;
-  if (!payload) throw new HttpError(401, "Please sign in again.");
-  return { username: payload.sub, role: payload.role, name: payload.name };
+  const auth = token ? await verifyIdToken(token) : null;
+  if (!auth) throw new HttpError(401, "Please sign in again.");
+  return auth;
 }
 
 export function requireJudge(auth: Auth): void {
@@ -43,11 +33,18 @@ export async function authorizeScript(auth: Auth, scriptId: string): Promise<voi
   if (!locked || !canAccess(auth, locked.owner)) throw new HttpError(404, "Project not found.");
 }
 
+// An extra rule for a route, run after sign-in and ownership but BEFORE any quota
+// is spent, so a request refused here costs the caller nothing.
+export type Check = (auth: Auth, ctx: { body?: unknown; scriptId?: string }) => Promise<void>;
+
 export interface Guard {
   // Where to find the project id this call acts on, if any.
   script?: "body" | "path";
   // A quota to spend for this call (refunded if it fails on our side).
   quota?: QuotaKind;
+  // Routes that spend money (models, transcription, voices, Fargate) get the strict per-minute limit.
+  heavy?: boolean;
+  check?: Check;
 }
 
 // The one place every route (Lambda and local server) checks access: sign-in,
@@ -58,13 +55,18 @@ export async function guard(
   rules: Guard,
   ids: { body?: unknown; path?: Record<string, string | undefined> },
 ): Promise<{ auth: Auth; refundQuota: () => Promise<void> }> {
-  const auth = authenticate(authorization);
+  const auth = await authenticate(authorization);
+  await enforceRate(auth.username, rules.heavy ? "heavy" : "normal", auth.role);
+  let scriptId: string | undefined;
   if (rules.script) {
-    const scriptId =
+    const found =
       rules.script === "path" ? ids.path?.scriptId : (ids.body as { script_id?: unknown } | undefined)?.script_id;
-    if (typeof scriptId !== "string" || !scriptId) throw new HttpError(400, "script_id is required.");
+    if (typeof found !== "string" || !found) throw new HttpError(400, "script_id is required.");
+    scriptId = found;
     await authorizeScript(auth, scriptId);
   }
+  if (rules.check) await rules.check(auth, { body: ids.body, scriptId });
+  if (rules.quota === "renders" && hasLimits(auth.role)) await enforceDailyRenderCap();
   if (rules.quota) {
     const spent = await consume(auth.username, auth.role, rules.quota);
     if (!spent.ok) throw new HttpError(403, spent.message);

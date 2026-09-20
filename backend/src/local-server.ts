@@ -13,6 +13,7 @@ import {
   SceneGenRequestSchema,
   WriteSceneRequestSchema,
   recordingKey,
+  VIDEO_FORMATS,
   type RenderStatus,
 } from "@vaani/shared";
 import { ZodError } from "zod";
@@ -27,7 +28,8 @@ import { markTranscriptionStarted, startTranscription, getTranscriptionStatus } 
 import { computeSync } from "./lib/sync/computeSync.js";
 import { listProjects, getProject } from "./lib/projects.js";
 import { guard, HttpError, type Auth, type Guard } from "./lib/auth/access.js";
-import { judgeLink, login, me } from "./handlers/auth.js";
+import { checkLockedScript, checkOwnScript, checkRecordingLength, limitedMinutes } from "./lib/auth/videoLimit.js";
+import { authConfig, google, judgeLink, login, me, refresh } from "./handlers/auth.js";
 
 // Local dev server: same lib functions the Lambda handlers call, so behavior
 // stays identical when this deploys behind API Gateway. Not used in prod.
@@ -60,7 +62,7 @@ function secure(rules: Guard): express.RequestHandler {
 
 app.post("/api/auth/login", async (req, res) => {
   try {
-    res.json(await login(req.body));
+    res.json(await login(req.body, req.ip));
   } catch (err) {
     if (err instanceof HttpError) return res.status(err.status).json({ error: err.message });
     if (err instanceof ZodError) return res.status(400).json({ error: "Enter a username and password." });
@@ -70,9 +72,33 @@ app.post("/api/auth/login", async (req, res) => {
 
 app.post("/api/auth/judge-link", async (req, res) => {
   try {
-    res.json(await judgeLink(req.body));
+    res.json(await judgeLink(req.body, req.ip));
   } catch (err) {
     if (err instanceof HttpError) return res.status(err.status).json({ error: err.message });
+    res.status(500).json({ error: errorMessage(err) });
+  }
+});
+
+app.post("/api/auth/google", async (req, res) => {
+  try {
+    res.json(await google(req.body, req.ip));
+  } catch (err) {
+    if (err instanceof HttpError) return res.status(err.status).json({ error: err.message });
+    if (err instanceof ZodError) return res.status(400).json({ error: "Google sign-in didn't complete. Please try again." });
+    res.status(500).json({ error: errorMessage(err) });
+  }
+});
+
+app.get("/api/auth/config", (_req, res) => {
+  res.json(authConfig());
+});
+
+app.post("/api/auth/refresh", async (req, res) => {
+  try {
+    res.json(await refresh(req.body));
+  } catch (err) {
+    if (err instanceof HttpError) return res.status(err.status).json({ error: err.message });
+    if (err instanceof ZodError) return res.status(400).json({ error: "Please sign in again." });
     res.status(500).json({ error: errorMessage(err) });
   }
 });
@@ -86,7 +112,7 @@ app.get("/api/auth/me", async (req, res) => {
   }
 });
 
-app.post("/api/ingest", secure({}), async (req, res) => {
+app.post("/api/ingest", secure({ heavy: true }), async (req, res) => {
   try {
     const parsed = IngestRequestSchema.parse(req.body);
     const result = await ingestRepo(parsed.repo_url);
@@ -98,11 +124,11 @@ app.post("/api/ingest", secure({}), async (req, res) => {
   }
 });
 
-app.post("/api/script", secure({ quota: "drafts" }), async (req, res) => {
+app.post("/api/script", secure({ quota: "drafts", heavy: true, check: checkOwnScript }), async (req, res) => {
   try {
     const parsed = ScriptGenRequestSchema.parse(req.body);
     const script = await generateScript(parsed.ingest, parsed.user_context, parsed.format, {
-      targetMinutes: parsed.target_minutes,
+      targetMinutes: limitedMinutes((res.locals.auth as Auth).role, parsed.target_minutes, VIDEO_FORMATS[parsed.format].defaultMinutes),
       sourceScript: parsed.source_script?.trim() || undefined,
     }, parsed.language);
     res.json(script);
@@ -113,11 +139,11 @@ app.post("/api/script", secure({ quota: "drafts" }), async (req, res) => {
 });
 
 // Step 1 of the progress-friendly flow: the outline only.
-app.post("/api/script/plan", secure({ quota: "drafts" }), async (req, res) => {
+app.post("/api/script/plan", secure({ quota: "drafts", heavy: true, check: checkOwnScript }), async (req, res) => {
   try {
     const parsed = ScriptGenRequestSchema.parse(req.body);
     const scenes = await planScript(parsed.ingest, parsed.user_context, parsed.format, {
-      targetMinutes: parsed.target_minutes,
+      targetMinutes: limitedMinutes((res.locals.auth as Auth).role, parsed.target_minutes, VIDEO_FORMATS[parsed.format].defaultMinutes),
       sourceScript: parsed.source_script?.trim() || undefined,
     }, parsed.language);
     res.json({ scenes });
@@ -128,7 +154,7 @@ app.post("/api/script/plan", secure({ quota: "drafts" }), async (req, res) => {
 });
 
 // Step 2: write one scene of that outline.
-app.post("/api/script/write-scene", secure({}), async (req, res) => {
+app.post("/api/script/write-scene", secure({ heavy: true }), async (req, res) => {
   try {
     const parsed = WriteSceneRequestSchema.parse(req.body);
     res.json(
@@ -147,7 +173,7 @@ app.post("/api/script/write-scene", secure({}), async (req, res) => {
   }
 });
 
-app.post("/api/script/scene", secure({}), async (req, res) => {
+app.post("/api/script/scene", secure({ heavy: true }), async (req, res) => {
   try {
     const parsed = SceneGenRequestSchema.parse(req.body);
     res.json(
@@ -167,10 +193,10 @@ app.post("/api/script/scene", secure({}), async (req, res) => {
   }
 });
 
-app.post("/api/script/lock", secure({ quota: "locks" }), async (req, res) => {
+app.post("/api/script/lock", secure({ quota: "locks", check: checkLockedScript }), async (req, res) => {
   try {
     const parsed = LockScriptRequestSchema.parse(req.body);
-    const locked = await lockScript(parsed.script, parsed.ingest, (res.locals.auth as Auth).username);
+    const locked = await lockScript(parsed.script, parsed.ingest, (res.locals.auth as Auth).username, (res.locals.auth as Auth).name);
     res.json(locked);
   } catch (err) {
     if (err instanceof ZodError) return res.status(400).json({ error: err.message });
@@ -178,7 +204,7 @@ app.post("/api/script/lock", secure({ quota: "locks" }), async (req, res) => {
   }
 });
 
-app.post("/api/narrate", secure({ script: "body" }), async (req, res) => {
+app.post("/api/narrate", secure({ script: "body", heavy: true }), async (req, res) => {
   try {
     const parsed = NarrateRequestSchema.parse(req.body);
     const locked = await getLockedScript(parsed.script_id);
@@ -190,7 +216,7 @@ app.post("/api/narrate", secure({ script: "body" }), async (req, res) => {
   }
 });
 
-app.post("/api/render", secure({ script: "body", quota: "renders" }), async (req, res) => {
+app.post("/api/render", secure({ script: "body", quota: "renders", heavy: true, check: checkRecordingLength }), async (req, res) => {
   try {
     const parsed = RenderRequestSchema.parse(req.body);
     const status: RenderStatus = {
@@ -230,7 +256,7 @@ app.post("/api/recording/upload-url", secure({ script: "body" }), async (req, re
   }
 });
 
-app.post("/api/transcribe", secure({ script: "body" }), async (req, res) => {
+app.post("/api/transcribe", secure({ script: "body", heavy: true }), async (req, res) => {
   try {
     const parsed = TranscribeRequestSchema.parse(req.body);
     const key = recordingKey(parsed.script_id, parsed.scene_id, "webm");

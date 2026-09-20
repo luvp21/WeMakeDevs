@@ -8,7 +8,7 @@ const sns = new SNSClient({});
 const deps: FailureDeps = {
   getStatus: getRenderStatus,
   setStatus: setRenderStatus,
-  refund: (owner) => refund(owner, "tester", "renders"),
+  refund: (owner) => refund(owner, "member", "renders"),
   // No topic configured (for example in a test stack) simply means no email.
   async notify(subject, message) {
     const TopicArn = process.env.ALERT_TOPIC_ARN;

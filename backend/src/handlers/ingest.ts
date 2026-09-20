@@ -3,7 +3,7 @@ import { IngestRequestSchema } from "@vaani/shared";
 import { ZodError } from "zod";
 import { ingestRepo, IngestError } from "../lib/ingest.js";
 
-export const handler = secured({}, async (event) => {
+export const handler = secured({ heavy: true }, async (event) => {
   try {
     const parsed = IngestRequestSchema.parse(JSON.parse(event.body ?? "{}"));
     const result = await ingestRepo(parsed.repo_url);
