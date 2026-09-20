@@ -15,10 +15,11 @@ These were each chosen over a simpler or more "impressive-sounding" alternative,
 7. **Narration is written to be spoken.** Short sentences, plain words, no dashes, colons or hype. The rules live in `backend/src/lib/prompts/spokenStyle.ts` and are checked on the output; a user's own wording is never rewritten.
 8. **Access is enforced on the server, in one place.** Every route goes through `guard()` (`backend/src/lib/auth/access.ts`): sign-in, project ownership, quota. New routes must use it (Lambda: wrap with `secured()`; local server: `secure()`). Hiding a page in the UI is not protection. Sign-in is Cognito. Never print or commit `AUTH_SECRET` or `backend/.accounts.txt`.
 9. **The Zod schemas in `shared/` are the single source of truth.** Change a shape there first; the API, the frontend and the renderer all use it.
+10. **How a frame looks lives in `shared/src/visualDesign.ts`, and it is themeable.** Every color is a CSS variable; a script's `theme` (`dark` default, `light` = the website's tokens and Geist Mono) picks the palette. Never hardcode a color in a visual or in slide HTML, and add new slide building blocks there, so the renderer and the review preview stay identical. A change here needs the Fargate image rebuilt.
 
 ## Where things stand
 
-Everything is built and deployed (see the live link in `README.md`). The LLM is Gemini and transcription is Whisper via Groq, not Bedrock and AWS Transcribe as first planned; both are behind provider interfaces. Frontend hosting is a Lambda behind the same HTTP API, because this AWS account can't create CloudFront resources yet. `docs/ARCHITECTURE.md` is the current design; `docs/FEATURES.md` says what is built and what was decided against.
+Everything is built and deployed (see the live link in `README.md`), including dark and light slide themes, richer slide blocks (bullets, tables, stat cards), and the redesigned dashboard and Studio. The LLM is Gemini and transcription is Whisper via Groq, not Bedrock and AWS Transcribe as first planned; both are behind provider interfaces. Frontend hosting is a Lambda behind the same HTTP API, because this AWS account can't create CloudFront resources yet. `docs/ARCHITECTURE.md` is the current design; `docs/FEATURES.md` says what is built and what was decided against.
 
 ## Build order
 

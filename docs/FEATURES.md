@@ -28,10 +28,11 @@ Status as of Sept 20, 2026. The must-have and good-to-have split below is the or
 | Bring your own script | Paste narration; Vaani keeps the words and builds visuals around them |
 | English or Hinglish | So the tool is useful to anyone who wants a fully English video |
 | Spoken-style writing and a machine-writing check | Drafts sounded written, not spoken. Rules and a retry, using patterns from the open-source humanizer skill |
+| Slide themes (dark, light) and richer slides (bullets, tables, stat cards, columns, bars) | Slides read as title cards only. Light follows the website's colors and type; the model now picks a block that fits the content |
 | Presenter face bubble | The first render had the voice but not the person |
 | One demo clip per step, recorded silently | Recording the screen and the narration together collided with apps that use the mic (a voice bot), needed the app in the right state on cue, and made talking while clicking the norm |
 | Clip fitting (speed up to fit, never cut the end, hold the last frame) | A demo's result is usually at the end of the clip |
-| Projects dashboard, landing page | Reopen any project at the right step |
+| Projects dashboard (progress bar, next step, project cards, Watch dialog), one-page Studio (horizontal stepper, repo form with live summary), landing page | Reopen any project at the right step, and see what to do next |
 | Local render mode | So a render can't silently run older code than the app |
 
 ## Good-to-have, and what happened

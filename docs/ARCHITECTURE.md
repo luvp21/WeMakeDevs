@@ -49,8 +49,8 @@ GitHub URL + notes + format + language + length (or the user's own script)
 ┌─────────────────────┐
 │ 7. Render            │  Step Functions runs an ECS Fargate one-off task (never Lambda) and waits
 │ Fargate + ffmpeg     │  for it. Per beat: Playwright captures
-│ Fargate + ffmpeg     │  the animated visual frame by frame; ffmpeg builds constant-30fps clips,
-│ render/src           │  fits demo clips to their beats, joins the scene with the recorded
+│ render/src           │  the animated visual frame by frame, in the script's theme; ffmpeg builds constant-30fps clips,
+│                      │  fits demo clips to their beats, joins the scene with the recorded
 └──────────┬──────────┘  audio, overlays the face bubble, and concatenates scenes to final.mp4.
            ▼
       Finished video (presigned S3 URL)
@@ -74,6 +74,8 @@ Instead of recording, `POST /narrate` has Amazon Polly (Kajal, `en-IN` for Engli
 - **Demo clips fit their beat.** A longer clip is sped up so all of it fits (squeezed into 85% of the beat, so the result stays on screen); a shorter one holds its last frame.
 - **Face bubble.** Circular mask via ffmpeg `geq`, bottom-right. Visuals are drawn at 82% when a face is present so nothing runs under it (scaling the stage keeps diagrams undistorted); the demo window moves left and shrinks to 960x540.
 - **Shared visual code.** `shared/src/visualDesign.ts` produces the HTML for every visual. The renderer screenshots it and the browser preview shows the same HTML in a scaled iframe, so what you review is what renders. Only code beats differ (Shiki in the renderer, a lighter highlighter in the browser).
+- **Themes.** A script has a `theme`, `dark` (default) or `light` (`shared/src/theme.ts`), chosen in the repo form or in script review and saved with the locked script (old scripts have none and stay dark). Every color in the design system is a CSS variable, and the light theme is one block of overrides using the website's own tokens plus Geist Mono. The font is embedded as base64 (`shared/src/geistMonoFont.ts`, 23 KB) because neither the renderer nor the sandboxed preview iframe can load a font file. The theme travels on `BeatChrome.theme`; `previewChrome(theme)` is a chrome with no bottom bar, for the review page. Code beats switch Shiki between `one-dark-pro` and `github-light`.
+- **Slide blocks.** Besides `h1`, `h2`, `p` and `.statement`, the slide CSS styles `ul.points` (bullets), `table.data`, `.stats` and `.stat` (stat cards), `.cols` (two columns) and `.hbars` (inline bars). The script prompt (`VISUAL_RULES` in `backend/src/lib/scriptGen.ts`) tells the model when to use each: one block per slide, small sizes, real numbers only, never hardcoded colors. Every animation still finishes inside the intro window the renderer captures.
 
 ## Deployment
 
@@ -92,6 +94,14 @@ Browser ──https──> API Gateway HTTP API ──┬─ GET /, /{proxy+}   
 Everything is in `backend/template.yaml`. CloudFront would normally front the site, but this account can't create CloudFront resources until AWS verifies it, so the frontend is served by `backend/site/index.mjs` (gzip, immutable caching for fingerprinted assets, SPA fallback, path-traversal guarded). The API is throttled (50 rps, burst 100) because it is public and each call can spend model, transcription, TTS or Fargate money.
 
 Locally, `backend/src/local-server.ts` serves the same routes (`/api/*`) and the Vite dev server proxies to it. With `RENDER_MODE=local` the render worker runs from the checkout instead of Fargate.
+
+## The web app
+
+React 19 + Vite, one bundle served by the site Lambda, pages loaded lazily.
+
+- **Landing** (`/`, public): hero demo, how it works, the sync explainer, the stack, FAQ. Scrolls as one page with a section strip nav.
+- **Dashboard** (`/app`): a horizontal five-step progress bar for the project you would pick up (the judge sees the newest), the next action under it, stat tiles (videos left, in progress, finished), and one card per project. A finished project has a Watch button that opens a dialog and fetches the video address through the project API (the list does not carry it). The list is cached in memory between visits and polled every 5 s while anything renders.
+- **Studio** (`/app/studio/:id?`): a horizontal stepper across the top (Repo, Script, Record, Sync, Video; a step opens once it is reachable), a compact header, then the step. The repo step is a two-column form with a sticky "Your video" summary. The recorder stays mounted while another step is open, so the camera stream and the list of uploaded scenes survive switching steps. None of the page layout changes what the handlers do.
 
 ## Access control
 
@@ -115,7 +125,7 @@ The web app decides what to show by role, but that is presentation: the data is 
 
 All defined once as Zod schemas in `shared/src/index.ts`; the API validates requests and the frontend parses responses with the same schemas.
 
-- **Script**: `{ repo_url, user_context, format, language, scenes[] { id, title, beats[] { id, text, visual_type, visual_spec } } }`
+- **Script**: `{ repo_url, user_context, format, language, theme, scenes[] { id, title, beats[] { id, text, visual_type, visual_spec } } }` (`theme` defaults to `dark`)
 - **Transcript** (per scene): `words[] { text, start_ms, end_ms }`, plus a status of in_progress, completed or failed
 - **Sync result**: `scenes[] { scene_id, checkpoints[] { beat_id, timestamp_ms } }`
 

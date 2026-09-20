@@ -23,9 +23,12 @@ The video uses **your real voice and face**. An AI voice (Amazon Polly) exists o
 - **Bring your own script**: paste narration and Vaani keeps your words and builds slides, diagrams and demo steps around them.
 - **Edit any scene**: change the wording and regenerate the visual to match, or rebuild the whole scene from your text. The teleprompter follows.
 - **Visuals**: syntax-highlighted code with the lines that matter, slides, architecture diagrams, bar charts (only from numbers in the repo or your notes), and product-demo footage.
+- **Informative slides**: besides big statements, slides can carry bullet points, a small table, stat cards, two columns (before and after) or inline bars. The script prompt picks the block that fits the content, one per slide, and only uses numbers that come from the repo or your notes.
+- **Dark or light slides**: pick a theme when you start a video (or change it in script review before locking). Dark is the editor-style look. Light follows this website: the same colors and the same monospace type (Geist Mono), for slides, diagrams, charts, code and the bottom bar.
 - **Product demos, one clip per step**: for a demo step you record a silent screen clip on its own (tab picker), separate from your narration. The app you're demoing can use the microphone, you can pause through waiting, and you can retake one step. In the video the clip is sped up to fit your narration and ends on its last frame, so the result is never cut off.
 - **Your face in the video**: a round camera bubble, bottom-right, on every scene.
-- **Projects dashboard**: reopen any project at the step where you left it.
+- **Projects dashboard**: a progress bar across the top shows the five steps and what to do next ("Record scene 2 of 3"), a card per project shows where it stands, and a finished video plays in a dialog without opening the Studio.
+- **One-page Studio**: a horizontal stepper (Repo, Script, Record, Sync, Video) and a repo form that shows your choices, and the Draft button, in a live summary beside it.
 
 ## How it works
 
@@ -105,7 +108,7 @@ npm run dev:frontend                      # http://localhost:5173  (proxies /api
 Set `RENDER_MODE=local` in `backend/.env` to run the render worker from your checkout instead of on Fargate. That way a render can't run older code than the app you're testing.
 
 ```bash
-npm test --workspace backend             # 87 tests: sync, script generation, transcription, layout, access control, quotas, render failure handling
+npm test --workspace backend             # 99 tests: sync, script generation, transcription, layout and themes, access control, quotas, render failure handling
 ```
 
 ## Deploy
@@ -133,10 +136,10 @@ Pass **every** parameter on every deploy: a parameter left out reverts to its de
 
 ```
 ├── shared/     Zod schemas (the single source of truth for every API and stored shape),
-│               formats, layout and visual design shared by the renderer and the browser preview
+│               formats, themes, layout and visual design shared by the renderer and the browser preview
 ├── backend/    Lambda handlers, script generation, sync, transcription, local dev server,
 │               template.yaml, site/ (the Lambda that serves the web app)
-├── frontend/   React 19 + Vite + Tailwind v4 + shadcn: landing page, dashboard, studio
+├── frontend/   React 19 + Vite + Tailwind v4 + shadcn: landing page, dashboard (/app), studio (/app/studio)
 ├── render/     Fargate worker: Playwright frames, ffmpeg assembly, face bubble, demo clips
 ├── docs/       architecture, local development, sync algorithm, features, scope plan, hackathon rules
 ├── CLAUDE.md   decisions that were locked on purpose, for the coding agent
@@ -150,6 +153,7 @@ Pass **every** parameter on every deploy: a parameter left out reverts to its de
 - **Lambda concurrency is 10** on this account (the default for a new one), so more than about ten requests in flight at once get a 503. Status polling is short, but a few people drafting scripts at the same time can reach it. Raising it needs an AWS Support case (Service limit increase, Lambda, Concurrent executions); the Service Quotas API refuses because the applied value is below the default.
 - **API Gateway's 30 second limit** applies to every call, so transcription runs in the background and long scripts are written scene by scene.
 - **A voice bot's replies aren't captured** in demo clips (no tab audio yet); show its text on screen.
-- **Not built:** auto-zoom on clicks, a post-recording timeline editor, trimming a section out of a recorded clip (pause while recording instead), Hindi in Devanagari.
+- **Charts are bar charts only.** No line or pie charts yet; a slide can also show numbers as a table, stat cards or inline bars.
+- **Not built:** auto-zoom on clicks, a post-recording timeline editor, trimming a section out of a recorded clip (pause while recording instead), Hindi in Devanagari, deleting or renaming a project.
 
 Track: **Ship It**.

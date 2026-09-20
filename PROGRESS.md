@@ -1201,13 +1201,77 @@ Notes:
 
 ## Sunday, Sept 20
 
-- [ ] Sync algorithm wired to a real recorded scene
-- [ ] Render stage working, full pipeline run start to finish
-- [ ] Good-to-haves (only if must-haves are done, cut off ~2–3 PM)
+- [x] Sync algorithm wired to a real recorded scene
+- [x] Render stage working, full pipeline run start to finish
+- [x] Good-to-haves (only if must-haves are done): slide themes and richer slides, dashboard and Studio redesign, landing page
 - [ ] Demo video recorded (3 min max)
 - [ ] Writeup written
 - [ ] Repo public, README current
 - [ ] Submitted before 8:00 PM IST
 
 Notes:
--
+- **Slide themes and richer slides (Sept 20 evening).** A script now has a
+  `theme` (`dark` default, `light`), picked in the script review step and saved with the locked
+  script, so old scripts stay dark. The light theme uses the website's own tokens and Geist Mono
+  (embedded as base64 in `shared/src/geistMonoFont.ts`, since neither the renderer nor the
+  sandboxed preview iframe can load a font file). All frame colors in `visualDesign.ts` are now
+  CSS variables, so slides, diagrams, charts, the demo frame, the face ring and code beats all
+  follow the theme (code uses Shiki `github-light`). Slides gained building blocks styled by the
+  design system: bullets (`ul.points`), table (`table.data`), stat cards (`.stats`), two columns
+  (`.cols`) and inline bars (`.hbars`), and the script prompt teaches the model when to use them
+  (one block per slide, real numbers only). Checked by rendering every block in both themes with
+  Playwright (no overflow outside the frame). Suite is 99. Deployed with a
+  rebuilt Fargate image (see the deploy entry below). Not built: line or pie charts (bars only).
+  The theme is chosen in the repo form and can still be changed in script review before locking.
+- **Dashboard redesign (Sept 20 evening, frontend only).** `/app` is now a
+  full-width page: a horizontal five-step progress bar on top (Repo, Script, Record, Sync, Video)
+  with the next action directly under it, a stats strip (videos left, in progress, finished),
+  and a card grid instead of a table. Cards show the repo owner's GitHub avatar, a slim stepper,
+  the status and what is next ("Record scene 2 of 3"), and a dashed "New video" tile fills the
+  grid. Finished videos have a Watch button that opens a dialog and plays the video (fetched once
+  through `api.getProject`, no backend change). Skeleton matches the final layout, the error
+  alert has Try again, and the last list is cached so coming back from the Studio is instant.
+  New: `components/app/ProjectStepper.tsx`, `ProjectCard.tsx`, `WatchDialog.tsx`; helpers in
+  `lib/stage.ts` (`nextStepText`, `allowanceText`, `repoParts`). Checked on desktop width against
+  the live API. Not checked: phone width, the Watch dialog (no finished project to open), the
+  judge view. Left out on purpose: delete/rename, search, format badges, thumbnails.
+- **Studio redesign (Sept 20 evening, frontend only).** `/app/studio` now
+  matches the dashboard: the vertical stepper is a horizontal bar across the top (same look, but
+  each step opens once reachable, blocked ones keep their tooltip), the `max-w-3xl` column and
+  side gutters are gone, and each step has a compact header (step count, title, the repo name and
+  a Draft/Script locked badge). The repo step is a two-column form: numbered sections, all five
+  video types across, language, length and the new slide theme choice side by side, "Already have
+  a script?" collapsed, and a sticky "Your video" summary with the Draft button so it is never
+  below the fold. The chosen theme now goes onto `Script.theme` from the form (still changeable in
+  script review). Sync and AI narration sit side by side, the render card has a max width. Copy
+  no longer says "Hinglish script" only. No Studio logic changed. New: `StudioHeader.tsx`,
+  `VideoSummary.tsx`; rewritten `Stepper.tsx`; `RepoForm.tsx` layout. Checked on desktop: repo
+  step, and a reopened project on the Record step. Not checked: phone width, drafting a script
+  end to end with the theme set, the Sync and Video steps.
+- **Deploy of all of the above, Sept 20 about 6 PM IST, and what was checked.** Order: `npm run
+  build:site`, Fargate image built and pushed (confirmed a real push: Login Succeeded, the new
+  digest in ECR), `sam build` and `sam deploy` with every parameter (values read from
+  `backend/.env` into shell variables, log redacted; stack `UPDATE_COMPLETE`, the Google outputs
+  still present, so no parameter reverted). Checks after it: the live page chunks (main, Dashboard,
+  Studio) are byte-identical to the local build; every POST route answers 401 without a token;
+  no errors in any Lambda log over the following 15 minutes; both CloudWatch alarms OK. The new
+  image was also run on its own to render a light frame (Geist Mono loads, theme applied). Then
+  one real render on the live stack as the judge (link key derived from `AUTH_SECRET`, nothing
+  printed): a hand-built light-theme script with bullets, a table, stat cards and a diagram, locked,
+  voiced by Polly and rendered on Fargate in 67 s. The frames show the light theme correctly. That
+  test project ("vercel/ms", judge account) is still in the judge's dashboard and used one of the
+  shared daily renders. Not checked live: a full Gemini draft with the theme set from the form, the
+  Watch dialog on a finished project in the browser, phone widths.
+- **Local-dev fix.** `frontend/vite.config.ts` only read `API_PROXY_TARGET` from the shell, so the
+  `frontend/.env.local` option in `docs/LOCAL_DEV.md` did nothing, and a teammate who skipped the
+  variable silently got the default (`localhost:4000`, an unconfigured local backend, so sign-in
+  failed with `USAGE_TABLE env var is not set`). The config now also reads `.env.local` (the shell
+  variable still wins), and the doc says what that error means. Tested with a dead address in the
+  file (fails), the variable over the file, the file alone, and the default.
+- **Docs brought up to date** in one pass: README (features, dashboard and Studio, test count 99,
+  limits), `docs/ARCHITECTURE.md` (themes, slide blocks, the web app section, script contract, a
+  duplicated line in the render diagram), `docs/FEATURES.md`, `docs/SCOPE_PLAN.md`,
+  `docs/TASK_SPLIT.md`, `docs/LOCAL_DEV.md`, `PRODUCT.md` (the "dark look" brand line was stale),
+  `CLAUDE.md` (decision 10, themes). `docs/HACKATHON_RULES.md` and `docs/SYNC_ALGORITHM.md` needed
+  no change. Still open before 8 PM: the demo video, the writeup, making the repo public, the
+  submission, confirming the SNS alert email, rotating the judge link right before submitting.

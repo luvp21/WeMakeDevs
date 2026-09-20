@@ -33,7 +33,15 @@ Open http://localhost:5173. The dev server forwards `/api/...` to the live backe
 - You are using the real backend, so what you create is real data (it shows on the judge's dashboard) and counts towards the shared rate limits.
 - You can't change or test backend behaviour in this mode. Use Mode B for that.
 
-On Windows use `set API_PROXY_TARGET=...&& npm run dev:frontend`, or put `API_PROXY_TARGET=...` in a `frontend/.env.local` file.
+Set it once instead of every time by putting this line in a file called `frontend/.env.local` (git-ignored, works on every system, including Windows):
+
+```
+API_PROXY_TARGET=https://<the live site address>
+```
+
+An `API_PROXY_TARGET` set on the command line wins over the file. On Windows use `set API_PROXY_TARGET=...&& npm run dev:frontend` for a one-off.
+
+**If sign-in fails and the terminal says something like `USAGE_TABLE env var is not set`,** the frontend is talking to a backend on your own laptop (`localhost:4000`, the default when `API_PROXY_TARGET` is not set) that has no AWS settings. Either set `API_PROXY_TARGET` as above, or stop `npm run dev:backend` if you didn't mean to run it.
 
 ## Mode B: the whole thing on your laptop
 

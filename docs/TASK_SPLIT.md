@@ -22,6 +22,10 @@ Fill in the names below once you've actually decided — this is a suggested spl
 - Wiring the stages together (the app's stepper plus state derived from S3; Step Functions only for the render)
 - AWS account setup, credit form, Builder Center verification for both members
 
+## How it ended up
+
+The tracks blurred, as expected with two people, and both of us ended up in most parts of the codebase. `git log` has the exact history of who changed what.
+
 ## Shared checkpoint
 
 Both tracks depend on one shared contract: the exact shape of a "beat" object (id, text, visual_type, visual_spec, checkpoint marker). **Agree on this shape together before either track writes code against it** — see `docs/ARCHITECTURE.md` for the current proposed shape. Changing it later means both tracks have to rework their side.
